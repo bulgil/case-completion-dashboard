@@ -1,0 +1,6 @@
+/data/
+/.tmp-inspect/
+/node_modules/
+/inspect_workbook.mjs
+/dashboard.exe
+/.cache/

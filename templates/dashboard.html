@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{.Title}}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <span class="eyebrow">КОНТРОЛЬ ЗАВЕРШЕНИЙ</span>
+        <h1>{{.Title}}</h1>
+        <p>Базовый статус и дата фиксируются при первой загрузке. Следующие файлы обновляют текущие данные.</p>
+      </div>
+      <form class="upload" action="/upload" method="post" enctype="multipart/form-data">
+        <label>Месяц плана<input type="month" name="period" value="{{.PeriodInput}}" required></label>
+        <label class="file"><input type="file" name="file" accept=".xlsx" required><span>Выбрать Excel</span></label>
+        <button type="submit">Загрузить и обновить</button>
+      </form>
+    </header>
+
+    {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+
+    <section class="metrics">
+      <article><span>Всего в плане</span><strong>{{.Total}}</strong><small>{{.Period}}</small></article>
+      <article class="green"><span>Завершено успешно</span><strong>{{.Completed}}</strong><small>по статусу контакта</small></article>
+      <article class="amber"><span>Перенос СЗ</span><strong>{{.Postponed}}</strong><small>дата изменилась</small></article>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
+        <input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ">
+      </div>
+      <div class="table-wrap">
+        <table id="cases">
+          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Статус на начало</th><th>Статус текущий</th></tr></thead>
+          <tbody>
+          {{range .Rows}}
+            <tr class="{{if .IsPostponed}}postponed{{end}}">
+              <td><strong>{{.Name}}</strong><small>{{.DealStage}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
+              <td>{{dateRU .BaselineHearing}}</td><td>{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
+              <td><span class="status {{statusClass .BaselineStatus}}">{{if .BaselineStatus}}{{.BaselineStatus}}{{else}}Не указан{{end}}</span></td>
+              <td><span class="status {{statusClass .CurrentStatus}}">{{if .CurrentStatus}}{{.CurrentStatus}}{{else}}Не указан{{end}}</span></td>
+            </tr>
+          {{else}}<tr><td colspan="7" class="empty">Данных пока нет</td></tr>{{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+  <script>
+    const search = document.querySelector('#search');
+    search.addEventListener('input', () => {
+      const query = search.value.toLocaleLowerCase('ru');
+      document.querySelectorAll('#cases tbody tr').forEach(row => row.hidden = !row.textContent.toLocaleLowerCase('ru').includes(query));
+    });
+    document.querySelector('input[type=file]').addEventListener('change', e => {
+      const label = e.target.nextElementSibling;
+      label.textContent = e.target.files[0]?.name || 'Выбрать Excel';
+    });
+  </script>
+</body>
+</html>
