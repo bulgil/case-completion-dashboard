@@ -8,18 +8,18 @@
 go run .
 ```
 
-Откройте `http://localhost:1987`, выберите месяц и загрузите `.xlsx`.
+Через настроенный Caddy откройте `https://ВАШ-ДОМЕН/dashboards/completion-plan`, выберите месяц и загрузите `.xlsx`.
 
 Первая загрузка формирует состав плана и фиксирует исходные статус и дату СЗ. Повторные загрузки сопоставляются по `Контакт: ID` (при его отсутствии — по номеру дела и ФИО), обновляют текущие значения и отмечают переносы СЗ.
 
-Данные хранятся локально в `data/dashboard.json`. Путь можно изменить переменной `DATA_FILE`. Приложение всегда слушает порт `1987`, внешний URI-префикс зафиксирован как `/dashboards`.
+Данные хранятся локально в `data/dashboard.json`. Путь можно изменить переменной `DATA_FILE`. Приложение всегда слушает порт `1987`, внешний URI приложения зафиксирован как `/dashboards/completion-plan`.
 
 ## Подключение как локальное приложение Bitrix24
 
 Приложение предоставляет обработчик:
 
 ```text
-https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/bitrix/app
+https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/completion-plan/bitrix/app
 ```
 
 В Bitrix24 откройте **Разработчикам → Другое → Локальное приложение** и создайте серверное приложение с пользовательским интерфейсом:
@@ -31,7 +31,7 @@ https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/bitrix/app
 
 Облачный Bitrix24 открывает обработчик во фрейме, поэтому URL должен быть доступен из интернета по HTTPS. `http://localhost:1987` для постоянной работы не подходит; используйте HTTPS reverse proxy на сервере или защищённый туннель для разработки.
 
-Проверка доступности сервиса: `GET /healthz` возвращает `ok`.
+Проверка доступности сервиса: `GET /dashboards/completion-plan/healthz` возвращает `ok`.
 
 Для Caddy с `handle_path /dashboards/*` запустите сервис так:
 
@@ -39,4 +39,4 @@ https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/bitrix/app
 DATA_FILE=/opt/case-completion-dashboard/data/dashboard.json ./dashboard
 ```
 
-Приложение формирует внешние ссылки с префиксом `/dashboards`. Внутри reverse proxy Caddy по-прежнему передаёт приложению пути `/static/style.css`, `/upload` и `/bitrix/app`.
+Префикс `/dashboards` остаётся общей точкой для будущих дашбордов. Это приложение использует slug `/completion-plan`. После удаления общего префикса Caddy передаёт приложению пути `/completion-plan`, `/completion-plan/static/style.css`, `/completion-plan/upload` и `/completion-plan/bitrix/app`.

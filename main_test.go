@@ -46,14 +46,14 @@ func TestBitrixHandlerAcceptsPostAndAllowsFrame(t *testing.T) {
 
 func TestDashboardUsesExternalBasePath(t *testing.T) {
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: "/dashboards"}
+	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: "/dashboards/completion-plan"}
 	recorder := httptest.NewRecorder()
-	app.dashboard(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	app.dashboard(recorder, httptest.NewRequest(http.MethodGet, "/completion-plan", nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, `href="/dashboards/static/style.css"`) {
+	if !strings.Contains(body, `href="/dashboards/completion-plan/static/style.css"`) {
 		t.Fatal("CSS URL не содержит BASE_PATH")
 	}
-	if !strings.Contains(body, `action="/dashboards/upload"`) {
+	if !strings.Contains(body, `action="/dashboards/completion-plan/upload"`) {
 		t.Fatal("upload URL не содержит BASE_PATH")
 	}
 }

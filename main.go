@@ -39,7 +39,8 @@ type dashboardData struct {
 
 func main() {
 	const addr = ":1987"
-	const basePath = "/dashboards"
+	const basePath = "/dashboards/completion-plan"
+	const appPath = "/completion-plan"
 	dataFile := env("DATA_FILE", filepath.Join("data", "dashboard.json"))
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 		"statusClass": statusClass,
@@ -51,12 +52,12 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", app.dashboard)
-	mux.HandleFunc("GET /bitrix/app", app.bitrixApp)
-	mux.HandleFunc("POST /bitrix/app", app.bitrixApp)
-	mux.HandleFunc("POST /upload", app.upload)
-	mux.HandleFunc("GET /healthz", healthcheck)
-	mux.Handle("GET /static/", http.FileServer(http.FS(assets)))
+	mux.HandleFunc("GET "+appPath, app.dashboard)
+	mux.HandleFunc("GET "+appPath+"/bitrix/app", app.bitrixApp)
+	mux.HandleFunc("POST "+appPath+"/bitrix/app", app.bitrixApp)
+	mux.HandleFunc("POST "+appPath+"/upload", app.upload)
+	mux.HandleFunc("GET "+appPath+"/healthz", healthcheck)
+	mux.Handle("GET "+appPath+"/static/", http.StripPrefix(appPath, http.FileServer(http.FS(assets))))
 	server := &http.Server{Addr: addr, Handler: logRequests(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("Дашборд запущен: http://localhost%s", addr)
 	log.Fatal(server.ListenAndServe())
