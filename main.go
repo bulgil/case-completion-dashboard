@@ -37,10 +37,13 @@ type dashboardData struct {
 	BasePath    string
 }
 
+const (
+	listenAddr = ":1987"
+	basePath   = "/dashboards/completion-plan"
+	appPath    = "/completion-plan"
+)
+
 func main() {
-	const addr = ":1987"
-	const basePath = "/dashboards/completion-plan"
-	const appPath = "/completion-plan"
 	dataFile := env("DATA_FILE", filepath.Join("data", "dashboard.json"))
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 		"statusClass": statusClass,
@@ -51,16 +54,21 @@ func main() {
 		log.Fatalf("загрузка данных: %v", err)
 	}
 
+	server := &http.Server{Addr: listenAddr, Handler: logRequests(app.routes()), ReadHeaderTimeout: 10 * time.Second}
+	log.Printf("Дашборд запущен: http://localhost%s%s", listenAddr, appPath)
+	log.Fatal(server.ListenAndServe())
+}
+
+func (a *application) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+appPath, app.dashboard)
-	mux.HandleFunc("GET "+appPath+"/bitrix/app", app.bitrixApp)
-	mux.HandleFunc("POST "+appPath+"/bitrix/app", app.bitrixApp)
-	mux.HandleFunc("POST "+appPath+"/upload", app.upload)
+	mux.HandleFunc("GET "+appPath, a.dashboard)
+	mux.HandleFunc("POST "+appPath, a.bitrixApp)
+	mux.HandleFunc("GET "+appPath+"/bitrix/app", a.bitrixApp)
+	mux.HandleFunc("POST "+appPath+"/bitrix/app", a.bitrixApp)
+	mux.HandleFunc("POST "+appPath+"/upload", a.upload)
 	mux.HandleFunc("GET "+appPath+"/healthz", healthcheck)
 	mux.Handle("GET "+appPath+"/static/", http.StripPrefix(appPath, http.FileServer(http.FS(assets))))
-	server := &http.Server{Addr: addr, Handler: logRequests(mux), ReadHeaderTimeout: 10 * time.Second}
-	log.Printf("Дашборд запущен: http://localhost%s", addr)
-	log.Fatal(server.ListenAndServe())
+	return mux
 }
 
 func (a *application) dashboard(w http.ResponseWriter, r *http.Request) {

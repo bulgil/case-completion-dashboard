@@ -44,6 +44,21 @@ func TestBitrixHandlerAcceptsPostAndAllowsFrame(t *testing.T) {
 	}
 }
 
+func TestMainRouteAcceptsBitrixPost(t *testing.T) {
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: basePath}
+	req := httptest.NewRequest(http.MethodPost, appPath, strings.NewReader("DOMAIN=test.bitrix24.ru&PLACEMENT=DEFAULT"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	app.routes().ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("POST %s: status = %d, body = %s", appPath, recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "api.bitrix24.com/api/v1/") {
+		t.Fatal("основной POST-маршрут не отрисовал Bitrix-версию")
+	}
+}
+
 func TestDashboardUsesExternalBasePath(t *testing.T) {
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
 	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: "/dashboards/completion-plan"}

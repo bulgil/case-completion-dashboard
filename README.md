@@ -19,7 +19,7 @@ go run .
 Приложение предоставляет обработчик:
 
 ```text
-https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/completion-plan/bitrix/app
+https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/completion-plan
 ```
 
 В Bitrix24 откройте **Разработчикам → Другое → Локальное приложение** и создайте серверное приложение с пользовательским интерфейсом:
@@ -39,4 +39,4 @@ https://ВАШ-ПУБЛИЧНЫЙ-ДОМЕН/dashboards/completion-plan/bitrix/a
 DATA_FILE=/opt/case-completion-dashboard/data/dashboard.json ./dashboard
 ```
 
-Префикс `/dashboards` остаётся общей точкой для будущих дашбордов. Это приложение использует slug `/completion-plan`. После удаления общего префикса Caddy передаёт приложению пути `/completion-plan`, `/completion-plan/static/style.css`, `/completion-plan/upload` и `/completion-plan/bitrix/app`.
+Префикс `/dashboards` остаётся общей точкой для будущих дашбордов. Это приложение использует slug `/completion-plan`. Основной маршрут принимает `GET` для обычного открытия и `POST` от Bitrix24. После удаления общего префикса Caddy передаёт приложению пути `/completion-plan`, `/completion-plan/static/style.css` и `/completion-plan/upload`. `/completion-plan/bitrix/app` сохранён как совместимый алиас.
