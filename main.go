@@ -38,13 +38,14 @@ type dashboardData struct {
 }
 
 func main() {
-	addr := env("ADDR", ":8080")
+	const addr = ":1987"
+	const basePath = "/dashboards"
 	dataFile := env("DATA_FILE", filepath.Join("data", "dashboard.json"))
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 		"statusClass": statusClass,
 		"dateRU":      dateRU,
 	}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(dataFile), tmpl: tmpl, basePath: normalizeBasePath(env("BASE_PATH", ""))}
+	app := &application{store: NewStore(dataFile), tmpl: tmpl, basePath: basePath}
 	if err := app.store.Load(); err != nil {
 		log.Fatalf("загрузка данных: %v", err)
 	}
@@ -198,14 +199,6 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
-}
-
-func normalizeBasePath(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" || value == "/" {
-		return ""
-	}
-	return "/" + strings.Trim(value, "/")
 }
 
 func humanPeriod(period string) string {

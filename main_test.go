@@ -58,14 +58,6 @@ func TestDashboardUsesExternalBasePath(t *testing.T) {
 	}
 }
 
-func TestNormalizeBasePath(t *testing.T) {
-	for input, want := range map[string]string{"": "", "/": "", "dashboards": "/dashboards", "/dashboards/": "/dashboards"} {
-		if got := normalizeBasePath(input); got != want {
-			t.Fatalf("normalizeBasePath(%q) = %q, want %q", input, got, want)
-		}
-	}
-}
-
 func TestStoreKeepsBaseline(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "data.json"))
 	first := []ImportedRow{{Key: "1", Name: "Иванов", Hearing: "2026-08-10", Status: "В работе"}}
