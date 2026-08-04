@@ -18,8 +18,9 @@ import (
 var assets embed.FS
 
 type application struct {
-	store *Store
-	tmpl  *template.Template
+	store    *Store
+	tmpl     *template.Template
+	basePath string
 }
 
 type dashboardData struct {
@@ -33,6 +34,7 @@ type dashboardData struct {
 	Rows        []Case
 	Message     string
 	Embedded    bool
+	BasePath    string
 }
 
 func main() {
@@ -42,7 +44,7 @@ func main() {
 		"statusClass": statusClass,
 		"dateRU":      dateRU,
 	}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(dataFile), tmpl: tmpl}
+	app := &application{store: NewStore(dataFile), tmpl: tmpl, basePath: normalizeBasePath(env("BASE_PATH", ""))}
 	if err := app.store.Load(); err != nil {
 		log.Fatalf("загрузка данных: %v", err)
 	}
@@ -85,6 +87,7 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 		Rows:        snapshot.Cases,
 		Total:       len(snapshot.Cases),
 		Embedded:    embedded,
+		BasePath:    a.basePath,
 	}
 	for _, item := range snapshot.Cases {
 		if isCompleted(item.CurrentStatus) {
@@ -110,52 +113,56 @@ func healthcheck(w http.ResponseWriter, _ *http.Request) {
 func (a *application) upload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 25<<20)
 	if err := r.ParseMultipartForm(25 << 20); err != nil {
-		redirectMessage(w, r, "Файл слишком большой или форма повреждена")
+		a.redirectMessage(w, r, "Файл слишком большой или форма повреждена")
 		return
 	}
 	period := strings.TrimSpace(r.FormValue("period"))
 	if _, err := time.Parse("2006-01", period); err != nil {
-		redirectMessage(w, r, "Выберите корректный месяц плана")
+		a.redirectMessage(w, r, "Выберите корректный месяц плана")
 		return
 	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		redirectMessage(w, r, "Выберите Excel-файл")
+		a.redirectMessage(w, r, "Выберите Excel-файл")
 		return
 	}
 	defer file.Close()
 	if !strings.HasSuffix(strings.ToLower(header.Filename), ".xlsx") {
-		redirectMessage(w, r, "Поддерживаются файлы .xlsx")
+		a.redirectMessage(w, r, "Поддерживаются файлы .xlsx")
 		return
 	}
 	tmp, err := os.CreateTemp("", "dashboard-*.xlsx")
 	if err != nil {
-		redirectMessage(w, r, "Не удалось принять файл")
+		a.redirectMessage(w, r, "Не удалось принять файл")
 		return
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 	if _, err = io.Copy(tmp, file); err != nil || tmp.Close() != nil {
-		redirectMessage(w, r, "Не удалось сохранить загруженный файл")
+		a.redirectMessage(w, r, "Не удалось сохранить загруженный файл")
 		return
 	}
 
 	rows, err := ParseWorkbook(tmpName)
 	if err != nil {
-		redirectMessage(w, r, "Ошибка чтения Excel: "+err.Error())
+		a.redirectMessage(w, r, "Ошибка чтения Excel: "+err.Error())
 		return
 	}
 	result, err := a.store.Import(period, rows)
 	if err != nil {
-		redirectMessage(w, r, "Ошибка сохранения: "+err.Error())
+		a.redirectMessage(w, r, "Ошибка сохранения: "+err.Error())
 		return
 	}
 	message := fmt.Sprintf("Загружено: %d; добавлено в план: %d; обновлено: %d", result.Read, result.Added, result.Updated)
-	redirectMessage(w, r, message)
+	a.redirectMessage(w, r, message)
 }
 
-func redirectMessage(w http.ResponseWriter, r *http.Request, message string) {
-	http.Redirect(w, r, "/?message="+urlQueryEscape(message), http.StatusSeeOther)
+func (a *application) redirectMessage(w http.ResponseWriter, r *http.Request, message string) {
+	target := a.basePath + "/"
+	if strings.HasPrefix(r.Referer(), "https://") && strings.Contains(r.Referer(), a.basePath+"/bitrix/app") {
+		target = a.basePath + "/bitrix/app"
+	}
+	http.Redirect(w, r, target+"?message="+urlQueryEscape(message), http.StatusSeeOther)
 }
 
 func urlQueryEscape(value string) string {
@@ -191,6 +198,14 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func normalizeBasePath(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "/" {
+		return ""
+	}
+	return "/" + strings.Trim(value, "/")
 }
 
 func humanPeriod(period string) string {

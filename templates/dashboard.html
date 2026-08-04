@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{{.Title}}</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="{{.BasePath}}/static/style.css">
 </head>
 <body{{if .Embedded}} class="bitrix-frame"{{end}}>
   <main class="shell">
@@ -14,7 +14,7 @@
         <h1>{{.Title}}</h1>
         <p>Базовый статус и дата фиксируются при первой загрузке. Следующие файлы обновляют текущие данные.</p>
       </div>
-      <form class="upload" action="/upload" method="post" enctype="multipart/form-data">
+      <form class="upload" action="{{.BasePath}}/upload" method="post" enctype="multipart/form-data">
         <label>Месяц плана<input type="month" name="period" value="{{.PeriodInput}}" required></label>
         <label class="file"><input type="file" name="file" accept=".xlsx" required><span>Выбрать Excel</span></label>
         <button type="submit">Загрузить и обновить</button>

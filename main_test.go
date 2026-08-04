@@ -44,6 +44,28 @@ func TestBitrixHandlerAcceptsPostAndAllowsFrame(t *testing.T) {
 	}
 }
 
+func TestDashboardUsesExternalBasePath(t *testing.T) {
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: "/dashboards"}
+	recorder := httptest.NewRecorder()
+	app.dashboard(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := recorder.Body.String()
+	if !strings.Contains(body, `href="/dashboards/static/style.css"`) {
+		t.Fatal("CSS URL не содержит BASE_PATH")
+	}
+	if !strings.Contains(body, `action="/dashboards/upload"`) {
+		t.Fatal("upload URL не содержит BASE_PATH")
+	}
+}
+
+func TestNormalizeBasePath(t *testing.T) {
+	for input, want := range map[string]string{"": "", "/": "", "dashboards": "/dashboards", "/dashboards/": "/dashboards"} {
+		if got := normalizeBasePath(input); got != want {
+			t.Fatalf("normalizeBasePath(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestStoreKeepsBaseline(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "data.json"))
 	first := []ImportedRow{{Key: "1", Name: "Иванов", Hearing: "2026-08-10", Status: "В работе"}}
