@@ -32,6 +32,7 @@ type dashboardData struct {
 	Postponed   int
 	Rows        []Case
 	Message     string
+	Embedded    bool
 }
 
 func main() {
@@ -48,7 +49,10 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", app.dashboard)
+	mux.HandleFunc("GET /bitrix/app", app.bitrixApp)
+	mux.HandleFunc("POST /bitrix/app", app.bitrixApp)
 	mux.HandleFunc("POST /upload", app.upload)
+	mux.HandleFunc("GET /healthz", healthcheck)
 	mux.Handle("GET /static/", http.FileServer(http.FS(assets)))
 	server := &http.Server{Addr: addr, Handler: logRequests(mux), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("Дашборд запущен: http://localhost%s", addr)
@@ -56,6 +60,18 @@ func main() {
 }
 
 func (a *application) dashboard(w http.ResponseWriter, r *http.Request) {
+	a.renderDashboard(w, r, false)
+}
+
+func (a *application) bitrixApp(w http.ResponseWriter, r *http.Request) {
+	// Bitrix24 opens application handlers in an iframe and sends context as POST.
+	// We do not persist OAuth tokens because the dashboard currently needs no REST calls.
+	w.Header().Set("Content-Security-Policy", "frame-ancestors https://*.bitrix24.ru https://*.bitrix24.com https://*.bitrix24.eu https://*.bitrix24.de https://*.bitrix24.by https://*.bitrix24.kz 'self'")
+	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	a.renderDashboard(w, r, true)
+}
+
+func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, embedded bool) {
 	snapshot := a.store.Snapshot()
 	period := snapshot.Period
 	if period == "" {
@@ -68,6 +84,7 @@ func (a *application) dashboard(w http.ResponseWriter, r *http.Request) {
 		UpdatedAt:   snapshot.UpdatedAt,
 		Rows:        snapshot.Cases,
 		Total:       len(snapshot.Cases),
+		Embedded:    embedded,
 	}
 	for _, item := range snapshot.Cases {
 		if isCompleted(item.CurrentStatus) {
@@ -82,6 +99,12 @@ func (a *application) dashboard(w http.ResponseWriter, r *http.Request) {
 	if err := a.tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		http.Error(w, "Ошибка отображения", http.StatusInternalServerError)
 	}
+}
+
+func healthcheck(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte("ok"))
 }
 
 func (a *application) upload(w http.ResponseWriter, r *http.Request) {

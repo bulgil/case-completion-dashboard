@@ -1,7 +1,11 @@
 package main
 
 import (
+	"html/template"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -19,6 +23,24 @@ func TestParseReferenceWorkbook(t *testing.T) {
 	}
 	if rows[0].Hearing != "2026-08-18" {
 		t.Fatalf("неожиданная дата: %s", rows[0].Hearing)
+	}
+}
+
+func TestBitrixHandlerAcceptsPostAndAllowsFrame(t *testing.T) {
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl}
+	req := httptest.NewRequest(http.MethodPost, "/bitrix/app", strings.NewReader("DOMAIN=test.bitrix24.ru"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	recorder := httptest.NewRecorder()
+	app.bitrixApp(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d", recorder.Code)
+	}
+	if !strings.Contains(recorder.Header().Get("Content-Security-Policy"), "*.bitrix24.ru") {
+		t.Fatal("Bitrix24 frame-ancestor отсутствует")
+	}
+	if !strings.Contains(recorder.Body.String(), "api.bitrix24.com/api/v1/") {
+		t.Fatal("Bitrix24 JS SDK отсутствует")
 	}
 }
 

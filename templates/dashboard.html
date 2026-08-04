@@ -6,7 +6,7 @@
   <title>{{.Title}}</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
+<body{{if .Embedded}} class="bitrix-frame"{{end}}>
   <main class="shell">
     <header class="hero">
       <div>
@@ -51,6 +51,7 @@
       </div>
     </section>
   </main>
+  {{if .Embedded}}<script src="https://api.bitrix24.com/api/v1/"></script>{{end}}
   <script>
     const search = document.querySelector('#search');
     search.addEventListener('input', () => {
@@ -61,6 +62,15 @@
       const label = e.target.nextElementSibling;
       label.textContent = e.target.files[0]?.name || 'Выбрать Excel';
     });
+    {{if .Embedded}}
+    if (window.BX24) {
+      BX24.init(() => {
+        const resize = () => BX24.resizeWindow(document.documentElement.scrollWidth, document.documentElement.scrollHeight);
+        resize();
+        new ResizeObserver(resize).observe(document.body);
+      });
+    }
+    {{end}}
   </script>
 </body>
 </html>
