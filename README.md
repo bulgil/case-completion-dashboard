@@ -19,11 +19,20 @@ docker compose ps
 task up       # собрать и запустить
 task logs     # открыть логи
 task status   # проверить контейнер и healthcheck
+task migrate-data # один раз перенести существующий ./data в Docker volume
 task update   # git pull origin main и пересборка
 task down     # остановить без удаления данных
 ```
 
 Не запускайте `docker compose down -v`, если хотите сохранить загруженный план и SQLite.
+
+При переходе с systemd на Docker сначала перенесите существующую базу и освободите порт:
+
+```bash
+task migrate-data
+sudo systemctl disable --now case-dashboard
+task up
+```
 
 ## Запуск
 

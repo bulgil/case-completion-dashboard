@@ -52,9 +52,14 @@ tasks:
       - docker compose ps {{.SERVICE}}
       - docker compose exec {{.SERVICE}} wget -qO- http://127.0.0.1:1987/completion-plan/healthz
 
+  migrate-data:
+    desc: Скопировать существующий каталог ./data в постоянный Docker volume
+    cmds:
+      - docker volume create completion-dashboard-data
+      - docker run --rm -v completion-dashboard-data:/target -v "{{.ROOT_DIR}}/data:/source:ro" alpine:3.23 sh -c "cp -a /source/. /target/"
+
   update:
     desc: Получить main, пересобрать и запустить
     cmds:
       - git pull origin main
       - task: up
-

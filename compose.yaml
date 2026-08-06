@@ -16,4 +16,4 @@ services:
 
 volumes:
   completion-dashboard-data:
-
+    name: completion-dashboard-data
