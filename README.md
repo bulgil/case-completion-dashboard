@@ -2,6 +2,29 @@
 
 Локальный дашборд на Go для контроля плана завершений по Excel-выгрузкам.
 
+## Запуск через Docker
+
+Для сервера рекомендуется Docker Compose:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+Приложение доступно Caddy на `127.0.0.1:1987`. SQLite хранится в постоянном volume `completion-dashboard-data` и не удаляется при обычном `docker compose down`.
+
+Если установлен [Task](https://taskfile.dev/), используйте короткие команды:
+
+```bash
+task up       # собрать и запустить
+task logs     # открыть логи
+task status   # проверить контейнер и healthcheck
+task update   # git pull origin main и пересборка
+task down     # остановить без удаления данных
+```
+
+Не запускайте `docker compose down -v`, если хотите сохранить загруженный план и SQLite.
+
 ## Запуск
 
 ```powershell

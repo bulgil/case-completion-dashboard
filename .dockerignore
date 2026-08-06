@@ -1,0 +1,11 @@
+.git
+.gitignore
+.cache
+.tmp-*
+data
+dashboard
+dashboard.exe
+node_modules
+inspect_workbook.mjs
+*.log
+

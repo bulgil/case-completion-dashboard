@@ -1,0 +1,19 @@
+services:
+  completion-dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: case-completion-dashboard:latest
+    container_name: case-completion-dashboard
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:1987:1987"
+    environment:
+      TZ: Asia/Yekaterinburg
+      DATA_FILE: /app/data/dashboard.db
+    volumes:
+      - completion-dashboard-data:/app/data
+
+volumes:
+  completion-dashboard-data:
+

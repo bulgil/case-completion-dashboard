@@ -1,0 +1,60 @@
+version: "3"
+
+vars:
+  SERVICE: completion-dashboard
+
+tasks:
+  default:
+    desc: Показать доступные команды
+    cmds:
+      - task --list
+
+  test:
+    desc: Запустить Go-тесты локально
+    cmds:
+      - go test ./...
+
+  build:
+    desc: Собрать Docker-образ
+    cmds:
+      - docker compose build {{.SERVICE}}
+
+  up:
+    desc: Собрать и запустить приложение в фоне
+    cmds:
+      - docker compose up -d --build {{.SERVICE}}
+      - docker compose ps {{.SERVICE}}
+
+  down:
+    desc: Остановить контейнер, сохранив SQLite volume
+    cmds:
+      - docker compose down
+
+  restart:
+    desc: Перезапустить контейнер
+    cmds:
+      - docker compose restart {{.SERVICE}}
+
+  rebuild:
+    desc: Пересобрать образ без кеша и перезапустить
+    cmds:
+      - docker compose build --no-cache {{.SERVICE}}
+      - docker compose up -d {{.SERVICE}}
+
+  logs:
+    desc: Показывать логи приложения
+    cmds:
+      - docker compose logs -f --tail=200 {{.SERVICE}}
+
+  status:
+    desc: Показать состояние и healthcheck
+    cmds:
+      - docker compose ps {{.SERVICE}}
+      - docker compose exec {{.SERVICE}} wget -qO- http://127.0.0.1:1987/completion-plan/healthz
+
+  update:
+    desc: Получить main, пересобрать и запустить
+    cmds:
+      - git pull origin main
+      - task: up
+
