@@ -75,6 +75,19 @@ func TestDashboardUsesExternalBasePath(t *testing.T) {
 	}
 }
 
+func TestTemplateContainsBitrixFieldCodes(t *testing.T) {
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.db")), tmpl: tmpl, basePath: basePath}
+	recorder := httptest.NewRecorder()
+	app.bitrixApp(recorder, httptest.NewRequest(http.MethodPost, appPath, nil))
+	body := recorder.Body.String()
+	for _, code := range []string{"UF_CRM_1708427400582", "UF_CRM_1708427240655", "useOriginalUfNames"} {
+		if !strings.Contains(body, code) {
+			t.Fatalf("в Bitrix-шаблоне отсутствует %s", code)
+		}
+	}
+}
+
 func TestStoreKeepsBaseline(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "data.db"))
 	if err := store.Load(); err != nil {

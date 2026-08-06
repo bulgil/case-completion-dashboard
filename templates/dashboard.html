@@ -79,11 +79,8 @@
       BX24.callMethod(method, params, result => result.error() ? reject(new Error(result.error())) : resolve(result.data()));
     });
     const bxBatch = commands => new Promise(resolve => BX24.callBatch(commands, resolve, false));
-    const normalizeTitle = value => String(value || '').trim().toLocaleLowerCase('ru').replace(/ё/g, 'е');
-    const fieldByTitle = (fields, title) => Object.entries(fields).find(([, meta]) => {
-      const labels = [meta.title, meta.formLabel, meta.listLabel, meta.filterLabel].map(normalizeTitle);
-      return labels.includes(normalizeTitle(title));
-    });
+    const STATUS_FIELD = 'UF_CRM_1708427400582';
+    const HEARING_FIELD = 'UF_CRM_1708427240655';
     const fieldValue = (meta, raw) => {
       const value = Array.isArray(raw) ? raw[0] : raw;
       const item = (meta.items || []).find(option => String(option.ID ?? option.id) === String(value));
@@ -101,24 +98,24 @@
       button.disabled = true;
       button.textContent = 'Получение полей…';
       try {
-        const fieldPayload = await bxCall('crm.item.fields', {entityTypeId: 3});
+        const fieldPayload = await bxCall('crm.item.fields', {entityTypeId: 3, useOriginalUfNames: 'Y'});
         const fields = fieldPayload.fields || fieldPayload.result?.fields || fieldPayload;
-        const statusField = fieldByTitle(fields, 'Статус');
-        const hearingField = fieldByTitle(fields, 'СЗ завершение');
-        if (!statusField || !hearingField) throw new Error('Не найдены поля «Статус» или «СЗ завершение» в контактах');
+        const statusMeta = fields[STATUS_FIELD];
+        const hearingMeta = fields[HEARING_FIELD];
+        if (!statusMeta || !hearingMeta) throw new Error(`Bitrix24 не вернул поля ${STATUS_FIELD} или ${HEARING_FIELD}`);
         const updates = [];
         let failed = 0;
         for (let offset = 0; offset < ids.length; offset += 50) {
           button.textContent = `Bitrix24: ${Math.min(offset + 50, ids.length)} из ${ids.length}`;
           const commands = {};
-          ids.slice(offset, offset + 50).forEach(id => commands[`contact_${id}`] = ['crm.item.get', {entityTypeId: 3, id}]);
+          ids.slice(offset, offset + 50).forEach(id => commands[`contact_${id}`] = ['crm.item.get', {entityTypeId: 3, id, useOriginalUfNames: 'Y'}]);
           const results = await bxBatch(commands);
           for (const id of ids.slice(offset, offset + 50)) {
             const result = results[`contact_${id}`];
             if (!result || result.error()) { failed++; continue; }
             const payload = result.data();
             const item = payload.item || payload.result?.item || payload;
-            updates.push({id, status: fieldValue(statusField[1], item[statusField[0]]), hearing: normalizeDate(item[hearingField[0]])});
+            updates.push({id, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD])});
           }
         }
         if (!updates.length) throw new Error('Bitrix24 не вернул ни одного контакта. Проверьте право CRM и Contact ID.');
