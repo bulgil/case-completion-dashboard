@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,9 @@ import (
 
 func TestParseReferenceWorkbook(t *testing.T) {
 	path := `C:\Users\12der\Downloads\План завершений в августе 2026.xlsx`
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skip("эталонный Excel доступен только в локальном окружении разработчика")
+	}
 	rows, err := ParseWorkbook(path)
 	if err != nil {
 		t.Fatal(err)
