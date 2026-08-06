@@ -12,12 +12,13 @@
       <div>
         <span class="eyebrow">КОНТРОЛЬ ЗАВЕРШЕНИЙ</span>
         <h1>{{.Title}}</h1>
-        <p>Базовый статус и дата фиксируются при первой загрузке. Следующие файлы обновляют текущие данные.</p>
+        <p>Excel фиксирует план на начало периода. Текущие статус и дата СЗ загружаются напрямую из контактов Bitrix24.</p>
       </div>
       <form class="upload" action="{{.BasePath}}/upload" method="post" enctype="multipart/form-data">
+        {{if .Embedded}}<input type="hidden" name="embedded" value="1">{{end}}
         <label>Месяц плана<input type="month" name="period" value="{{.PeriodInput}}" required></label>
         <label class="file"><input type="file" name="file" accept=".xlsx" required><span>Выбрать Excel</span></label>
-        <button type="submit">Загрузить и обновить</button>
+        <button type="submit">Загрузить план</button>
       </form>
     </header>
 
@@ -32,14 +33,14 @@
     <section class="panel">
       <div class="panel-head">
         <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
-        <input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ">
+        <div class="panel-actions">{{if .CanSync}}<button id="sync-bitrix" type="button">Обновить из Bitrix24</button>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
       </div>
       <div class="table-wrap">
         <table id="cases">
           <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Статус на начало</th><th>Статус текущий</th></tr></thead>
           <tbody>
           {{range .Rows}}
-            <tr class="{{if .IsPostponed}}postponed{{end}}">
+            <tr data-contact-id="{{.Key}}" class="{{if .IsPostponed}}postponed{{end}}">
               <td><strong>{{.Name}}</strong><small>{{.DealStage}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td>{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status {{statusClass .BaselineStatus}}">{{if .BaselineStatus}}{{.BaselineStatus}}{{else}}Не указан{{end}}</span></td>
@@ -68,7 +69,70 @@
         const resize = () => BX24.resizeWindow(document.documentElement.scrollWidth, document.documentElement.scrollHeight);
         resize();
         new ResizeObserver(resize).observe(document.body);
+        const syncButton = document.querySelector('#sync-bitrix');
+        if (syncButton) syncButton.addEventListener('click', () => syncWithBitrix(syncButton));
+        {{if .AutoSync}}if (syncButton) syncWithBitrix(syncButton);{{end}}
       });
+    }
+
+    const bxCall = (method, params) => new Promise((resolve, reject) => {
+      BX24.callMethod(method, params, result => result.error() ? reject(new Error(result.error())) : resolve(result.data()));
+    });
+    const bxBatch = commands => new Promise(resolve => BX24.callBatch(commands, resolve, false));
+    const normalizeTitle = value => String(value || '').trim().toLocaleLowerCase('ru').replace(/ё/g, 'е');
+    const fieldByTitle = (fields, title) => Object.entries(fields).find(([, meta]) => {
+      const labels = [meta.title, meta.formLabel, meta.listLabel, meta.filterLabel].map(normalizeTitle);
+      return labels.includes(normalizeTitle(title));
+    });
+    const fieldValue = (meta, raw) => {
+      const value = Array.isArray(raw) ? raw[0] : raw;
+      const item = (meta.items || []).find(option => String(option.ID ?? option.id) === String(value));
+      return String(item?.VALUE ?? item?.value ?? value ?? '');
+    };
+    const normalizeDate = value => {
+      if (!value) return '';
+      const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[1]}-${match[2]}-${match[3]}` : String(value);
+    };
+
+    async function syncWithBitrix(button) {
+      const ids = [...document.querySelectorAll('[data-contact-id]')].map(row => row.dataset.contactId).filter(Boolean);
+      if (!ids.length) return;
+      button.disabled = true;
+      button.textContent = 'Получение полей…';
+      try {
+        const fieldPayload = await bxCall('crm.item.fields', {entityTypeId: 3});
+        const fields = fieldPayload.fields || fieldPayload.result?.fields || fieldPayload;
+        const statusField = fieldByTitle(fields, 'Статус');
+        const hearingField = fieldByTitle(fields, 'СЗ завершение');
+        if (!statusField || !hearingField) throw new Error('Не найдены поля «Статус» или «СЗ завершение» в контактах');
+        const updates = [];
+        let failed = 0;
+        for (let offset = 0; offset < ids.length; offset += 50) {
+          button.textContent = `Bitrix24: ${Math.min(offset + 50, ids.length)} из ${ids.length}`;
+          const commands = {};
+          ids.slice(offset, offset + 50).forEach(id => commands[`contact_${id}`] = ['crm.item.get', {entityTypeId: 3, id}]);
+          const results = await bxBatch(commands);
+          for (const id of ids.slice(offset, offset + 50)) {
+            const result = results[`contact_${id}`];
+            if (!result || result.error()) { failed++; continue; }
+            const payload = result.data();
+            const item = payload.item || payload.result?.item || payload;
+            updates.push({id, status: fieldValue(statusField[1], item[statusField[0]]), hearing: normalizeDate(item[hearingField[0]])});
+          }
+        }
+        if (!updates.length) throw new Error('Bitrix24 не вернул ни одного контакта. Проверьте право CRM и Contact ID.');
+        button.textContent = 'Сохранение…';
+        const response = await fetch('{{.BasePath}}/sync', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(updates)});
+        if (!response.ok) throw new Error(await response.text());
+        const saved = await response.json();
+        const summary = `Из Bitrix24 обновлено контактов: ${saved.updated}` + (failed ? `; ошибок доступа/поиска: ${failed}` : '');
+        location.href = '{{.BasePath}}?embedded=1&message=' + encodeURIComponent(summary);
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = 'Повторить синхронизацию';
+        alert(error.message || String(error));
+      }
     }
     {{end}}
   </script>

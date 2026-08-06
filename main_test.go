@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
@@ -74,7 +76,11 @@ func TestDashboardUsesExternalBasePath(t *testing.T) {
 }
 
 func TestStoreKeepsBaseline(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "data.json"))
+	store := NewStore(filepath.Join(t.TempDir(), "data.db"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
 	first := []ImportedRow{{Key: "1", Name: "Иванов", Hearing: "2026-08-10", Status: "В работе"}}
 	if _, err := store.Import("2026-08", first); err != nil {
 		t.Fatal(err)
@@ -83,11 +89,44 @@ func TestStoreKeepsBaseline(t *testing.T) {
 	if _, err := store.Import("2026-08", second); err != nil {
 		t.Fatal(err)
 	}
+	unchanged := store.Snapshot().Cases[0]
+	if unchanged.CurrentHearing != "2026-08-10" || unchanged.CurrentStatus != "В работе" {
+		t.Fatalf("повторный Excel изменил текущие данные: %+v", unchanged)
+	}
+	if _, err := store.UpdateCurrent([]CurrentUpdate{{Key: "1", Hearing: "2026-09-12", Status: "Завершен успешно"}}); err != nil {
+		t.Fatal(err)
+	}
 	got := store.Snapshot().Cases[0]
 	if got.BaselineHearing != "2026-08-10" || got.CurrentHearing != "2026-09-12" || !got.IsPostponed() {
 		t.Fatalf("неверное сравнение: %+v", got)
 	}
 	if got.BaselineStatus != "В работе" || got.CurrentStatus != "Завершен успешно" {
 		t.Fatalf("неверные статусы: %+v", got)
+	}
+}
+
+func TestSyncEndpointUpdatesSQLite(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "dashboard.db"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Import("2026-08", []ImportedRow{{Key: "42", Name: "Контакт", Hearing: "2026-08-10", Status: "В работе"}}); err != nil {
+		t.Fatal(err)
+	}
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	app := &application{store: store, tmpl: tmpl, basePath: basePath}
+	payload, _ := json.Marshal([]CurrentUpdate{{Key: "42", Hearing: "2026-09-01", Status: "Завершен успешно"}})
+	recorder := httptest.NewRecorder()
+	app.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, appPath+"/sync", bytes.NewReader(payload)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("sync status = %d: %s", recorder.Code, recorder.Body.String())
+	}
+	item := store.Snapshot().Cases[0]
+	if item.BaselineHearing != "2026-08-10" || item.CurrentHearing != "2026-09-01" || !item.IsPostponed() {
+		t.Fatalf("неверные даты после sync: %+v", item)
+	}
+	if item.BaselineStatus != "В работе" || item.CurrentStatus != "Завершен успешно" {
+		t.Fatalf("неверные статусы после sync: %+v", item)
 	}
 }

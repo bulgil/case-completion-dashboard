@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -35,6 +36,8 @@ type dashboardData struct {
 	Message     string
 	Embedded    bool
 	BasePath    string
+	CanSync     bool
+	AutoSync    bool
 }
 
 const (
@@ -44,7 +47,7 @@ const (
 )
 
 func main() {
-	dataFile := env("DATA_FILE", filepath.Join("data", "dashboard.json"))
+	dataFile := env("DATA_FILE", filepath.Join("data", "dashboard.db"))
 	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{
 		"statusClass": statusClass,
 		"dateRU":      dateRU,
@@ -53,6 +56,7 @@ func main() {
 	if err := app.store.Load(); err != nil {
 		log.Fatalf("загрузка данных: %v", err)
 	}
+	defer app.store.Close()
 
 	server := &http.Server{Addr: listenAddr, Handler: logRequests(app.routes()), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("Дашборд запущен: http://localhost%s%s", listenAddr, appPath)
@@ -66,12 +70,17 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc("GET "+appPath+"/bitrix/app", a.bitrixApp)
 	mux.HandleFunc("POST "+appPath+"/bitrix/app", a.bitrixApp)
 	mux.HandleFunc("POST "+appPath+"/upload", a.upload)
+	mux.HandleFunc("POST "+appPath+"/sync", a.syncCurrent)
 	mux.HandleFunc("GET "+appPath+"/healthz", healthcheck)
 	mux.Handle("GET "+appPath+"/static/", http.StripPrefix(appPath, http.FileServer(http.FS(assets))))
 	return mux
 }
 
 func (a *application) dashboard(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("embedded") == "1" {
+		a.bitrixApp(w, r)
+		return
+	}
 	a.renderDashboard(w, r, false)
 }
 
@@ -98,6 +107,8 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 		Total:       len(snapshot.Cases),
 		Embedded:    embedded,
 		BasePath:    a.basePath,
+		CanSync:     embedded && len(snapshot.Cases) > 0,
+		AutoSync:    embedded && r.URL.Query().Get("sync") == "1" && len(snapshot.Cases) > 0,
 	}
 	for _, item := range snapshot.Cases {
 		if isCompleted(item.CurrentStatus) {
@@ -112,6 +123,24 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 	if err := a.tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		http.Error(w, "Ошибка отображения", http.StatusInternalServerError)
 	}
+}
+
+func (a *application) syncCurrent(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
+	var updates []CurrentUpdate
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&updates); err != nil {
+		http.Error(w, "Некорректные данные синхронизации", http.StatusBadRequest)
+		return
+	}
+	count, err := a.store.UpdateCurrent(updates)
+	if err != nil {
+		http.Error(w, "Не удалось сохранить данные Bitrix24", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_ = json.NewEncoder(w).Encode(map[string]int{"updated": count})
 }
 
 func healthcheck(w http.ResponseWriter, _ *http.Request) {
@@ -168,11 +197,13 @@ func (a *application) upload(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *application) redirectMessage(w http.ResponseWriter, r *http.Request, message string) {
-	target := a.basePath + "/"
-	if strings.HasPrefix(r.Referer(), "https://") && strings.Contains(r.Referer(), a.basePath+"/bitrix/app") {
-		target = a.basePath + "/bitrix/app"
+	target := a.basePath
+	separator := "?"
+	if r.FormValue("embedded") == "1" || (strings.HasPrefix(r.Referer(), "https://") && strings.Contains(r.Referer(), a.basePath)) {
+		target = a.basePath + "?embedded=1&sync=1"
+		separator = "&"
 	}
-	http.Redirect(w, r, target+"?message="+urlQueryEscape(message), http.StatusSeeOther)
+	http.Redirect(w, r, target+separator+"message="+urlQueryEscape(message), http.StatusSeeOther)
 }
 
 func urlQueryEscape(value string) string {
