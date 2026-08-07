@@ -12,7 +12,7 @@ import (
 )
 
 type ImportedRow struct {
-	Key, Name, CaseNumber, Manager, Hearing, Status, DealStage string
+	Key, DealID, Name, CaseNumber, Manager, Hearing, Status, DealStage string
 }
 
 type workbookXML struct {
@@ -144,7 +144,7 @@ func ParseWorkbook(path string) ([]ImportedRow, error) {
 		if key == "" || (caseNumber == "" && name == "") {
 			continue
 		}
-		rows = append(rows, ImportedRow{Key: key, Name: name, CaseNumber: caseNumber,
+		rows = append(rows, ImportedRow{Key: key, DealID: get("id"), Name: name, CaseNumber: caseNumber,
 			Manager: get("контакт: арбитражный управляющий"), Hearing: excelDate(get("контакт: сз завершение")),
 			Status: get("контакт: статус"), DealStage: get("стадия сделки")})
 	}

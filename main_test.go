@@ -122,6 +122,35 @@ func TestStoreKeepsBaseline(t *testing.T) {
 	}
 }
 
+func TestStoreTracksNewIDsAndKeepsBaselineStage(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "data.db"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.Import("2026-08", []ImportedRow{{Key: "1", DealID: "101", Hearing: "2026-08-10", DealStage: "Подготовка"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Import("2026-09", []ImportedRow{{Key: "2", DealID: "202", Hearing: "2026-09-10", DealStage: "Суд"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(store.Snapshot().Cases); got != 2 {
+		t.Fatalf("tracked cases = %d, want 2", got)
+	}
+	if _, err := store.UpdateCurrent([]CurrentUpdate{{Key: "1", Stage: "Завершена"}}); err != nil {
+		t.Fatal(err)
+	}
+	var first Case
+	for _, item := range store.Snapshot().Cases {
+		if item.Key == "1" {
+			first = item
+		}
+	}
+	if first.BaselineStage != "Подготовка" || first.CurrentStage != "Завершена" || first.DealID != "101" {
+		t.Fatalf("unexpected tracked stages: %+v", first)
+	}
+}
+
 func TestSyncEndpointUpdatesSQLite(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "dashboard.db"))
 	if err := store.Load(); err != nil {

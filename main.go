@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -20,6 +21,7 @@ var assets embed.FS
 
 type application struct {
 	store    *Store
+	tracker  *BitrixTracker
 	tmpl     *template.Template
 	basePath string
 }
@@ -37,7 +39,6 @@ type dashboardData struct {
 	Embedded    bool
 	BasePath    string
 	CanSync     bool
-	AutoSync    bool
 }
 
 const (
@@ -57,6 +58,8 @@ func main() {
 		log.Fatalf("загрузка данных: %v", err)
 	}
 	defer app.store.Close()
+	app.tracker = NewBitrixTracker(app.store, os.Getenv("BITRIX_WEBHOOK_URL"))
+	go app.tracker.Run(context.Background())
 
 	server := &http.Server{Addr: listenAddr, Handler: logRequests(app.routes()), ReadHeaderTimeout: 10 * time.Second}
 	log.Printf("Дашборд запущен: http://localhost%s%s", listenAddr, appPath)
@@ -71,6 +74,7 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc("POST "+appPath+"/bitrix/app", a.bitrixApp)
 	mux.HandleFunc("POST "+appPath+"/upload", a.upload)
 	mux.HandleFunc("POST "+appPath+"/sync", a.syncCurrent)
+	mux.HandleFunc("POST "+appPath+"/refresh", a.refreshBitrix)
 	mux.HandleFunc("GET "+appPath+"/healthz", healthcheck)
 	mux.Handle("GET "+appPath+"/static/", http.StripPrefix(appPath, http.FileServer(http.FS(assets))))
 	return mux
@@ -107,8 +111,7 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 		Total:       len(snapshot.Cases),
 		Embedded:    embedded,
 		BasePath:    a.basePath,
-		CanSync:     embedded && len(snapshot.Cases) > 0,
-		AutoSync:    embedded && r.URL.Query().Get("sync") == "1" && len(snapshot.Cases) > 0,
+		CanSync:     a.tracker != nil && a.tracker.Enabled() && len(snapshot.Cases) > 0,
 	}
 	for _, item := range snapshot.Cases {
 		if isCompleted(item.CurrentStatus) {
@@ -123,6 +126,19 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 	if err := a.tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
 		http.Error(w, "Ошибка отображения", http.StatusInternalServerError)
 	}
+}
+
+func (a *application) refreshBitrix(w http.ResponseWriter, r *http.Request) {
+	if a.tracker == nil || !a.tracker.Enabled() {
+		a.redirectMessage(w, r, "Для фонового отслеживания настройте BITRIX_WEBHOOK_URL")
+		return
+	}
+	count, err := a.tracker.Sync(r.Context())
+	if err != nil {
+		a.redirectMessage(w, r, "Ошибка обновления Bitrix24: "+err.Error())
+		return
+	}
+	a.redirectMessage(w, r, fmt.Sprintf("Из Bitrix24 обновлено записей: %d", count))
 }
 
 func (a *application) syncCurrent(w http.ResponseWriter, r *http.Request) {
@@ -191,6 +207,13 @@ func (a *application) upload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		a.redirectMessage(w, r, "Ошибка сохранения: "+err.Error())
 		return
+	}
+	if a.tracker != nil && a.tracker.Enabled() && result.Added > 0 {
+		go func() {
+			if _, syncErr := a.tracker.Sync(context.Background()); syncErr != nil {
+				log.Printf("обновление Bitrix24 после загрузки: %v", syncErr)
+			}
+		}()
 	}
 	message := fmt.Sprintf("Загружено: %d; добавлено в план: %d; обновлено: %d", result.Read, result.Added, result.Updated)
 	a.redirectMessage(w, r, message)

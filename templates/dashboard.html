@@ -33,18 +33,18 @@
     <section class="panel">
       <div class="panel-head">
         <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
-        <div class="panel-actions">{{if .CanSync}}<button id="sync-bitrix" type="button">Обновить из Bitrix24</button>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
+        <div class="panel-actions">{{if .CanSync}}<form action="{{.BasePath}}/refresh" method="post"><input type="hidden" name="embedded" value="{{if .Embedded}}1{{else}}0{{end}}"><button id="sync-bitrix" type="submit">Обновить из Bitrix24</button></form>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
       </div>
       <div class="table-wrap">
         <table id="cases">
-          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Статус на начало</th><th>Статус текущий</th></tr></thead>
+          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th></tr></thead>
           <tbody>
           {{range .Rows}}
             <tr data-contact-id="{{.Key}}" class="{{if .IsPostponed}}postponed{{end}}">
-              <td><strong>{{.Name}}</strong><small>{{.DealStage}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
+              <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td>{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
-              <td><span class="status {{statusClass .BaselineStatus}}">{{if .BaselineStatus}}{{.BaselineStatus}}{{else}}Не указан{{end}}</span></td>
-              <td><span class="status {{statusClass .CurrentStatus}}">{{if .CurrentStatus}}{{.CurrentStatus}}{{else}}Не указан{{end}}</span></td>
+              <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
+              <td><span class="status active">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
             </tr>
           {{else}}<tr><td colspan="7" class="empty">Данных пока нет</td></tr>{{end}}
           </tbody>
@@ -69,9 +69,6 @@
         const resize = () => BX24.resizeWindow(document.documentElement.scrollWidth, document.documentElement.scrollHeight);
         resize();
         new ResizeObserver(resize).observe(document.body);
-        const syncButton = document.querySelector('#sync-bitrix');
-        if (syncButton) syncButton.addEventListener('click', () => syncWithBitrix(syncButton));
-        {{if .AutoSync}}if (syncButton) syncWithBitrix(syncButton);{{end}}
       });
     }
 

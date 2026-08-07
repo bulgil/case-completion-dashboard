@@ -3,4 +3,5 @@
 /node_modules/
 /inspect_workbook.mjs
 /dashboard.exe
+/.env
 /.cache/
