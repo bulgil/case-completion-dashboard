@@ -75,6 +75,7 @@ func (a *application) routes() http.Handler {
 	mux.HandleFunc("POST "+appPath+"/upload", a.upload)
 	mux.HandleFunc("POST "+appPath+"/sync", a.syncCurrent)
 	mux.HandleFunc("POST "+appPath+"/refresh", a.refreshBitrix)
+	mux.HandleFunc("GET "+appPath+"/export", a.exportExcel)
 	mux.HandleFunc("GET "+appPath+"/healthz", healthcheck)
 	mux.Handle("GET "+appPath+"/static/", http.StripPrefix(appPath, http.FileServer(http.FS(assets))))
 	return mux

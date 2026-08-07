@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"html/template"
@@ -174,5 +175,27 @@ func TestSyncEndpointUpdatesSQLite(t *testing.T) {
 	}
 	if item.BaselineStatus != "В работе" || item.CurrentStatus != "Завершен успешно" {
 		t.Fatalf("неверные статусы после sync: %+v", item)
+	}
+}
+
+func TestExportExcel(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "dashboard.db"))
+	if err := store.Load(); err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _ = store.Import("2026-08", []ImportedRow{{Key: "42", DealID: "84", Name: "Иванов", Hearing: "2026-08-10", DealStage: "Суд"}})
+	app := &application{store: store}
+	recorder := httptest.NewRecorder()
+	app.exportExcel(recorder, httptest.NewRequest(http.MethodGet, appPath+"/export", nil))
+	reader, err := zip.NewReader(bytes.NewReader(recorder.Body.Bytes()), int64(recorder.Body.Len()))
+	if err != nil {
+		t.Fatalf("invalid xlsx: %v", err)
+	}
+	if len(reader.File) < 5 {
+		t.Fatalf("xlsx parts = %d", len(reader.File))
+	}
+	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "spreadsheetml") {
+		t.Fatalf("content type = %s", contentType)
 	}
 }

@@ -69,14 +69,14 @@ func (b *BitrixTracker) Sync(ctx context.Context) (int, error) {
 	}
 
 	var fieldsPayload map[string]any
-	if err := b.call(ctx, "crm.item.fields", url.Values{"entityTypeId": {"3"}, "useOriginalUfNames": {"Y"}}, &fieldsPayload); err != nil {
+	if err := b.call(ctx, "crm.contact.fields", url.Values{}, &fieldsPayload); err != nil {
 		return 0, err
 	}
-	fields := object(object(fieldsPayload["result"])["fields"])
-	if len(fields) == 0 {
-		fields = object(fieldsPayload["fields"])
-	}
+	fields := object(fieldsPayload["result"])
 	statusMeta := object(fields[statusField])
+	if len(statusMeta) == 0 {
+		return 0, fmt.Errorf("Bitrix24 не вернул поле контакта %s", statusField)
+	}
 
 	updates := make([]CurrentUpdate, 0, len(cases))
 	stageIDs := map[string]struct{}{}
@@ -87,9 +87,9 @@ func (b *BitrixTracker) Sync(ctx context.Context) (int, error) {
 		}
 		commands := map[string]string{}
 		for _, item := range cases[offset:end] {
-			commands["c_"+item.Key] = "crm.item.get?entityTypeId=3&id=" + url.QueryEscape(item.Key) + "&useOriginalUfNames=Y"
+			commands["c_"+item.Key] = "crm.contact.get?id=" + url.QueryEscape(item.Key)
 			if item.DealID != "" {
-				commands["d_"+item.Key] = "crm.item.get?entityTypeId=2&id=" + url.QueryEscape(item.DealID)
+				commands["d_"+item.Key] = "crm.deal.get?id=" + url.QueryEscape(item.DealID)
 			}
 		}
 		results, err := b.batch(ctx, commands)
@@ -97,18 +97,21 @@ func (b *BitrixTracker) Sync(ctx context.Context) (int, error) {
 			return len(updates), err
 		}
 		for _, saved := range cases[offset:end] {
-			contact := object(object(results["c_"+saved.Key])["item"])
+			contact := object(results["c_"+saved.Key])
 			if len(contact) == 0 {
 				continue
 			}
 			update := CurrentUpdate{Key: saved.Key, Status: enumValue(statusMeta, contact[statusField]), Hearing: normalizeBitrixDate(contact[hearingField]), Stage: saved.CurrentStage}
-			deal := object(object(results["d_"+saved.Key])["item"])
-			if id := stringValue(deal["stageId"]); id != "" {
+			deal := object(results["d_"+saved.Key])
+			if id := firstString(deal, "STAGE_ID", "stageId"); id != "" {
 				update.Stage = id
 				stageIDs[id] = struct{}{}
 			}
 			updates = append(updates, update)
 		}
+	}
+	if len(updates) == 0 {
+		return 0, fmt.Errorf("Bitrix24 не вернул ни одного отслеживаемого контакта; проверьте Contact ID и права webhook на CRM")
 	}
 	stageNames := b.stageNames(ctx, stageIDs)
 	for i := range updates {
@@ -199,6 +202,15 @@ func stringValue(value any) string {
 		value = values[0]
 	}
 	return strings.TrimSpace(fmt.Sprint(value))
+}
+
+func firstString(item map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := stringValue(item[key]); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 func enumValue(meta map[string]any, raw any) string {
 	value := stringValue(raw)

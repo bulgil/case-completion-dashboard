@@ -33,7 +33,7 @@
     <section class="panel">
       <div class="panel-head">
         <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
-        <div class="panel-actions">{{if .CanSync}}<form action="{{.BasePath}}/refresh" method="post"><input type="hidden" name="embedded" value="{{if .Embedded}}1{{else}}0{{end}}"><button id="sync-bitrix" type="submit">Обновить из Bitrix24</button></form>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
+        <div class="panel-actions">{{if .CanSync}}<form action="{{.BasePath}}/refresh" method="post"><input type="hidden" name="embedded" value="{{if .Embedded}}1{{else}}0{{end}}"><button id="sync-bitrix" type="submit">Обновить из Bitrix24</button></form>{{end}}<a class="export-button" href="{{.BasePath}}/export">Экспорт в Excel</a><input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
       </div>
       <div class="table-wrap">
         <table id="cases">
