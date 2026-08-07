@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"sort"
@@ -42,7 +43,11 @@ func (b *BitrixTracker) Run(ctx context.Context) {
 		return
 	case <-timer.C:
 	}
-	_, _ = b.Sync(ctx)
+	if count, err := b.Sync(ctx); err != nil {
+		log.Printf("Bitrix24: первое фоновое обновление: %v", err)
+	} else {
+		log.Printf("Bitrix24: первое фоновое обновление, записей: %d", count)
+	}
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {
@@ -50,7 +55,11 @@ func (b *BitrixTracker) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_, _ = b.Sync(ctx)
+			if count, err := b.Sync(ctx); err != nil {
+				log.Printf("Bitrix24: часовое обновление: %v", err)
+			} else {
+				log.Printf("Bitrix24: часовое обновление, записей: %d", count)
+			}
 		}
 	}
 }
@@ -163,7 +172,14 @@ func (b *BitrixTracker) batch(ctx context.Context, commands map[string]string) (
 	if err := b.call(ctx, "batch", form, &payload); err != nil {
 		return nil, err
 	}
-	return object(object(payload["result"])["result"]), nil
+	batchResult := object(payload["result"])
+	results := object(batchResult["result"])
+	if len(results) == 0 {
+		if errors := object(batchResult["result_error"]); len(errors) > 0 {
+			return nil, fmt.Errorf("ошибки batch Bitrix24: %v", errors)
+		}
+	}
+	return results, nil
 }
 
 func (b *BitrixTracker) call(ctx context.Context, method string, form url.Values, target any) error {

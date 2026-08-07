@@ -40,7 +40,7 @@
           <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th></tr></thead>
           <tbody>
           {{range .Rows}}
-            <tr data-contact-id="{{.Key}}" class="{{if .IsPostponed}}postponed{{end}}">
+            <tr data-contact-id="{{.Key}}" data-deal-id="{{.DealID}}" class="{{if .IsPostponed}}postponed{{end}}">
               <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td>{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
@@ -69,6 +69,8 @@
         const resize = () => BX24.resizeWindow(document.documentElement.scrollWidth, document.documentElement.scrollHeight);
         resize();
         new ResizeObserver(resize).observe(document.body);
+        const syncButton = document.querySelector('#sync-bitrix');
+        if (syncButton) syncButton.addEventListener('click', event => { event.preventDefault(); syncWithBitrix(syncButton); });
       });
     }
 
@@ -90,8 +92,8 @@
     };
 
     async function syncWithBitrix(button) {
-      const ids = [...document.querySelectorAll('[data-contact-id]')].map(row => row.dataset.contactId).filter(Boolean);
-      if (!ids.length) return;
+      const records = [...document.querySelectorAll('[data-contact-id]')].map(row => ({contactId: row.dataset.contactId, dealId: row.dataset.dealId})).filter(item => item.contactId);
+      if (!records.length) return;
       button.disabled = true;
       button.textContent = 'Получение полей…';
       try {
@@ -100,19 +102,31 @@
         const statusMeta = fields[STATUS_FIELD];
         const hearingMeta = fields[HEARING_FIELD];
         if (!statusMeta || !hearingMeta) throw new Error(`Bitrix24 не вернул поля ${STATUS_FIELD} или ${HEARING_FIELD}`);
+        const dealFields = await bxCall('crm.deal.fields', {});
+        const stageMeta = dealFields.STAGE_ID || dealFields.result?.STAGE_ID;
         const updates = [];
         let failed = 0;
-        for (let offset = 0; offset < ids.length; offset += 50) {
-          button.textContent = `Bitrix24: ${Math.min(offset + 50, ids.length)} из ${ids.length}`;
+        for (let offset = 0; offset < records.length; offset += 25) {
+          const chunk = records.slice(offset, offset + 25);
+          button.textContent = `Bitrix24: ${Math.min(offset + 25, records.length)} из ${records.length}`;
           const commands = {};
-          ids.slice(offset, offset + 50).forEach(id => commands[`contact_${id}`] = ['crm.item.get', {entityTypeId: 3, id, useOriginalUfNames: 'Y'}]);
+          chunk.forEach(item => {
+            commands[`contact_${item.contactId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
+            if (item.dealId) commands[`deal_${item.contactId}`] = ['crm.deal.get', {id: item.dealId}];
+          });
           const results = await bxBatch(commands);
-          for (const id of ids.slice(offset, offset + 50)) {
-            const result = results[`contact_${id}`];
+          for (const record of chunk) {
+            const result = results[`contact_${record.contactId}`];
             if (!result || result.error()) { failed++; continue; }
             const payload = result.data();
             const item = payload.item || payload.result?.item || payload;
-            updates.push({id, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD])});
+            let stage = '';
+            const dealResult = results[`deal_${record.contactId}`];
+            if (dealResult && !dealResult.error()) {
+              const deal = dealResult.data();
+              stage = stageMeta ? fieldValue(stageMeta, deal.STAGE_ID ?? deal.stageId) : String(deal.STAGE_ID ?? deal.stageId ?? '');
+            }
+            updates.push({id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
           }
         }
         if (!updates.length) throw new Error('Bitrix24 не вернул ни одного контакта. Проверьте право CRM и Contact ID.');

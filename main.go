@@ -112,7 +112,7 @@ func (a *application) renderDashboard(w http.ResponseWriter, r *http.Request, em
 		Total:       len(snapshot.Cases),
 		Embedded:    embedded,
 		BasePath:    a.basePath,
-		CanSync:     a.tracker != nil && a.tracker.Enabled() && len(snapshot.Cases) > 0,
+		CanSync:     len(snapshot.Cases) > 0 && (embedded || (a.tracker != nil && a.tracker.Enabled())),
 	}
 	for _, item := range snapshot.Cases {
 		if isCompleted(item.CurrentStatus) {
