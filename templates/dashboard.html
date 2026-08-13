@@ -44,7 +44,7 @@
               <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td class="current-hearing">{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
-              <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
+              <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span><small class="current-contact-status">Статус контакта: {{if .CurrentStatus}}{{.CurrentStatus}}{{else}}не указан{{end}}</small></td>
             </tr>
           {{else}}<tr><td colspan="7" class="empty">Данных пока нет</td></tr>{{end}}
           </tbody>
@@ -81,10 +81,18 @@
     const bxBatch = commands => new Promise(resolve => BX24.callBatch(commands, resolve, false));
     const STATUS_FIELD = 'UF_CRM_1708427400582';
     const HEARING_FIELD = 'UF_CRM_1708427240655';
+    const optionList = meta => {
+      const candidates = [meta?.items, meta?.ITEMS, meta?.list, meta?.LIST, meta?.settings?.items, meta?.settings?.ITEMS, meta?.SETTINGS?.ITEMS];
+      for (const candidate of candidates) {
+        if (Array.isArray(candidate)) return candidate;
+        if (candidate && typeof candidate === 'object') return Object.entries(candidate).map(([id, value]) => typeof value === 'object' ? value : {ID:id, VALUE:value});
+      }
+      return [];
+    };
     const fieldValue = (meta, raw) => {
       const value = Array.isArray(raw) ? raw[0] : raw;
-      const item = (meta.items || []).find(option => String(option.ID ?? option.id) === String(value));
-      return String(item?.VALUE ?? item?.value ?? value ?? '');
+      const item = optionList(meta).find(option => String(option.ID ?? option.id ?? option.VALUE_ID ?? option.valueId) === String(value));
+      return String(item?.VALUE ?? item?.value ?? item?.NAME ?? item?.name ?? value ?? '').trim();
     };
     const normalizeDate = value => {
       if (!value) return '';
@@ -98,8 +106,7 @@
       button.disabled = true;
       button.textContent = 'Получение полей…';
       try {
-        const fieldPayload = await bxCall('crm.item.fields', {entityTypeId: 3, useOriginalUfNames: 'Y'});
-        const fields = fieldPayload.fields || fieldPayload.result?.fields || fieldPayload;
+        const fields = await bxCall('crm.contact.fields', {});
         const statusMeta = fields[STATUS_FIELD];
         const hearingMeta = fields[HEARING_FIELD];
         if (!statusMeta || !hearingMeta) throw new Error(`Bitrix24 не вернул поля ${STATUS_FIELD} или ${HEARING_FIELD}`);
@@ -112,21 +119,20 @@
           button.textContent = `Bitrix24: ${Math.min(offset + 25, records.length)} из ${records.length}`;
           const commands = {};
           chunk.forEach(item => {
-            commands[`contact_${item.rowId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
+            commands[`contact_${item.rowId}`] = ['crm.contact.get', {id: item.contactId}];
             if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.deal.get', {id: item.dealId}];
           });
           const results = await bxBatch(commands);
           for (const record of chunk) {
             const result = results[`contact_${record.rowId}`];
-            if (!result || result.error()) { failed++; continue; }
-            const payload = result.data();
-            const item = payload.item || payload.result?.item || payload;
+            if (!result || result.error()) { failed++; console.error('Bitrix contact error', record, result?.error(), result?.error_description?.()); continue; }
+            const item = result.data();
             let stage = '';
             const dealResult = results[`deal_${record.rowId}`];
             if (dealResult && !dealResult.error()) {
               const deal = dealResult.data();
               stage = stageMeta ? fieldValue(stageMeta, deal.STAGE_ID ?? deal.stageId) : String(deal.STAGE_ID ?? deal.stageId ?? '');
-            }
+            } else if (record.dealId) { failed++; console.error('Bitrix deal error', record, dealResult?.error(), dealResult?.error_description?.()); }
             updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
           }
         }
@@ -142,6 +148,7 @@
           row.querySelector('.current-hearing').innerHTML = formatDate(update.hearing) + (postponed ? '<span class="tag warn">перенос</span>' : '');
           const stageCell = row.querySelector('.current-stage');
           stageCell.textContent = row.dataset.currentStage || 'Не указана';
+          row.querySelector('.current-contact-status').textContent = 'Статус контакта: ' + (update.status || 'не указан');
         });
         refreshMetrics();
         button.disabled = false;
