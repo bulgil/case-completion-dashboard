@@ -23,6 +23,7 @@
     </header>
 
     {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
+    {{if not .Embedded}}<div class="notice">REST-запросы Bitrix24 недоступны при прямом открытии страницы. Для получения актуальных данных загрузите файл внутри локального приложения Bitrix24.</div>{{end}}
 
     <section class="metrics">
       <article><span>Всего в плане</span><strong id="metric-total">{{.Total}}</strong><small>{{.Period}}</small></article>
@@ -106,12 +107,11 @@
       button.disabled = true;
       button.textContent = 'Получение полей…';
       try {
-        const fields = await bxCall('crm.contact.fields', {});
+        const fieldPayload = await bxCall('crm.item.fields', {entityTypeId: 3, useOriginalUfNames: 'Y'});
+        const fields = fieldPayload.fields || fieldPayload.result?.fields || fieldPayload;
         const statusMeta = fields[STATUS_FIELD];
         const hearingMeta = fields[HEARING_FIELD];
         if (!statusMeta || !hearingMeta) throw new Error(`Bitrix24 не вернул поля ${STATUS_FIELD} или ${HEARING_FIELD}`);
-        const dealFields = await bxCall('crm.deal.fields', {});
-        const stageMeta = dealFields.STAGE_ID || dealFields.result?.STAGE_ID;
         const updates = [];
         let failed = 0;
         for (let offset = 0; offset < records.length; offset += 25) {
@@ -119,23 +119,41 @@
           button.textContent = `Bitrix24: ${Math.min(offset + 25, records.length)} из ${records.length}`;
           const commands = {};
           chunk.forEach(item => {
-            commands[`contact_${item.rowId}`] = ['crm.contact.get', {id: item.contactId}];
-            if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.deal.get', {id: item.dealId}];
+            commands[`contact_${item.rowId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
+            if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.item.get', {entityTypeId: 2, id: item.dealId}];
           });
           const results = await bxBatch(commands);
           for (const record of chunk) {
             const result = results[`contact_${record.rowId}`];
             if (!result || result.error()) { failed++; console.error('Bitrix contact error', record, result?.error(), result?.error_description?.()); continue; }
-            const item = result.data();
+            const contactPayload = result.data();
+            const item = contactPayload.item || contactPayload.result?.item;
+            if (!item) { failed++; console.error('Unexpected contact payload', record, contactPayload); continue; }
             let stage = '';
             const dealResult = results[`deal_${record.rowId}`];
             if (dealResult && !dealResult.error()) {
-              const deal = dealResult.data();
-              stage = stageMeta ? fieldValue(stageMeta, deal.STAGE_ID ?? deal.stageId) : String(deal.STAGE_ID ?? deal.stageId ?? '');
+              const dealPayload = dealResult.data();
+              const deal = dealPayload.item || dealPayload.result?.item;
+              stage = String(deal?.stageId ?? deal?.STAGE_ID ?? '');
             } else if (record.dealId) { failed++; console.error('Bitrix deal error', record, dealResult?.error(), dealResult?.error_description?.()); }
             updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
           }
         }
+        const stageIDs = [...new Set(updates.map(update => update.stage).filter(Boolean))];
+        const stageNames = {};
+        for (let offset = 0; offset < stageIDs.length; offset += 50) {
+          const chunk = stageIDs.slice(offset, offset + 50);
+          const commands = {};
+          chunk.forEach((stageID, index) => commands[`stage_${index}`] = ['crm.status.list', {filter: {STATUS_ID: stageID}}]);
+          const results = await bxBatch(commands);
+          chunk.forEach((stageID, index) => {
+            const result = results[`stage_${index}`];
+            if (!result || result.error()) return;
+            const match = (result.data() || []).find(item => String(item.STATUS_ID) === stageID);
+            if (match?.NAME) stageNames[stageID] = String(match.NAME);
+          });
+        }
+        updates.forEach(update => { if (stageNames[update.stage]) update.stage = stageNames[update.stage]; });
         if (!updates.length) throw new Error('Bitrix24 не вернул ни одного контакта. Проверьте право CRM и Contact ID.');
         updates.forEach(update => {
           const row = document.querySelector(`[data-row-id="${CSS.escape(String(update.rowId))}"]`);

@@ -51,6 +51,18 @@ func TestRenderUploadedRowsEnablesSync(t *testing.T) {
 	}
 }
 
+func TestTemplateUsesWorkingBitrixUniversalMethods(t *testing.T) {
+	app := testApp(t)
+	recorder := httptest.NewRecorder()
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true, CanSync: true, Rows: []Case{{Key: "42", DealID: "84"}}})
+	body := recorder.Body.String()
+	for _, expected := range []string{"crm.item.fields", "crm.item.get", "entityTypeId: 3", "entityTypeId: 2", "crm.status.list", "STATUS_ID"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("нет %q", expected)
+		}
+	}
+}
+
 func TestExportExcel(t *testing.T) {
 	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()
