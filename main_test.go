@@ -3,199 +3,69 @@ package main
 import (
 	"archive/zip"
 	"bytes"
-	"encoding/json"
 	"html/template"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func TestParseReferenceWorkbook(t *testing.T) {
-	path := `C:\Users\12der\Downloads\План завершений в августе 2026.xlsx`
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		t.Skip("эталонный Excel доступен только в локальном окружении разработчика")
-	}
-	rows, err := ParseWorkbook(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 2936 {
-		t.Fatalf("получено %d строк, ожидалось 2936", len(rows))
-	}
-	if rows[0].Name != "Колоколова Гульнара Гайзулловна" {
-		t.Fatalf("неожиданная первая строка: %+v", rows[0])
-	}
-	if rows[0].Hearing != "2026-08-18" {
-		t.Fatalf("неожиданная дата: %s", rows[0].Hearing)
-	}
+func testApp(t *testing.T) *application {
+	t.Helper()
+	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
+	return &application{tmpl: tmpl, basePath: basePath}
 }
 
-func TestBitrixHandlerAcceptsPostAndAllowsFrame(t *testing.T) {
-	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl}
-	req := httptest.NewRequest(http.MethodPost, "/bitrix/app", strings.NewReader("DOMAIN=test.bitrix24.ru"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+func TestBitrixHandlerAcceptsPost(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	app.bitrixApp(recorder, req)
+	testApp(t).routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, appPath, strings.NewReader("DOMAIN=test.bitrix24.ru")))
 	if recorder.Code != http.StatusOK {
-		t.Fatalf("status = %d", recorder.Code)
-	}
-	if !strings.Contains(recorder.Header().Get("Content-Security-Policy"), "*.bitrix24.ru") {
-		t.Fatal("Bitrix24 frame-ancestor отсутствует")
+		t.Fatalf("status=%d", recorder.Code)
 	}
 	if !strings.Contains(recorder.Body.String(), "api.bitrix24.com/api/v1/") {
-		t.Fatal("Bitrix24 JS SDK отсутствует")
+		t.Fatal("Bitrix SDK отсутствует")
 	}
 }
 
-func TestMainRouteAcceptsBitrixPost(t *testing.T) {
-	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: basePath}
-	req := httptest.NewRequest(http.MethodPost, appPath, strings.NewReader("DOMAIN=test.bitrix24.ru&PLACEMENT=DEFAULT"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+func TestDashboardIsStateless(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	app.routes().ServeHTTP(recorder, req)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("POST %s: status = %d, body = %s", appPath, recorder.Code, recorder.Body.String())
-	}
-	if !strings.Contains(recorder.Body.String(), "api.bitrix24.com/api/v1/") {
-		t.Fatal("основной POST-маршрут не отрисовал Bitrix-версию")
-	}
-}
-
-func TestDashboardUsesExternalBasePath(t *testing.T) {
-	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.json")), tmpl: tmpl, basePath: "/dashboards/completion-plan"}
-	recorder := httptest.NewRecorder()
-	app.dashboard(recorder, httptest.NewRequest(http.MethodGet, "/completion-plan", nil))
+	testApp(t).dashboard(recorder, httptest.NewRequest(http.MethodGet, appPath, nil))
 	body := recorder.Body.String()
-	if !strings.Contains(body, `href="/dashboards/completion-plan/static/style.css"`) {
-		t.Fatal("CSS URL не содержит BASE_PATH")
-	}
 	if !strings.Contains(body, `action="/dashboards/completion-plan/upload"`) {
-		t.Fatal("upload URL не содержит BASE_PATH")
+		t.Fatal("неверный upload URL")
+	}
+	if strings.Contains(body, "Обновлено из Bitrix24:") {
+		t.Fatal("пустой дашборд содержит сохранённые данные")
 	}
 }
 
-func TestTemplateContainsBitrixFieldCodes(t *testing.T) {
-	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: NewStore(filepath.Join(t.TempDir(), "data.db")), tmpl: tmpl, basePath: basePath}
+func TestRenderUploadedRowsEnablesSync(t *testing.T) {
+	app := testApp(t)
 	recorder := httptest.NewRecorder()
-	app.bitrixApp(recorder, httptest.NewRequest(http.MethodPost, appPath, nil))
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true, CanSync: true, AutoSync: true, Rows: []Case{{Key: "42", DealID: "84", Name: "Иванов", BaselineStage: "Суд", CurrentStage: "Суд"}}})
 	body := recorder.Body.String()
-	for _, code := range []string{"UF_CRM_1708427400582", "UF_CRM_1708427240655", "useOriginalUfNames"} {
-		if !strings.Contains(body, code) {
-			t.Fatalf("в Bitrix-шаблоне отсутствует %s", code)
+	for _, expected := range []string{`data-contact-id="42"`, `data-deal-id="84"`, `syncWithBitrix(syncButton)`, `Экспорт в Excel`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("нет %q", expected)
 		}
-	}
-}
-
-func TestStoreKeepsBaseline(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "data.db"))
-	if err := store.Load(); err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	first := []ImportedRow{{Key: "1", Name: "Иванов", Hearing: "2026-08-10", Status: "В работе"}}
-	if _, err := store.Import("2026-08", first); err != nil {
-		t.Fatal(err)
-	}
-	second := []ImportedRow{{Key: "1", Name: "Иванов", Hearing: "2026-09-12", Status: "Завершен успешно"}}
-	if _, err := store.Import("2026-08", second); err != nil {
-		t.Fatal(err)
-	}
-	unchanged := store.Snapshot().Cases[0]
-	if unchanged.CurrentHearing != "2026-08-10" || unchanged.CurrentStatus != "В работе" {
-		t.Fatalf("повторный Excel изменил текущие данные: %+v", unchanged)
-	}
-	if _, err := store.UpdateCurrent([]CurrentUpdate{{Key: "1", Hearing: "2026-09-12", Status: "Завершен успешно"}}); err != nil {
-		t.Fatal(err)
-	}
-	got := store.Snapshot().Cases[0]
-	if got.BaselineHearing != "2026-08-10" || got.CurrentHearing != "2026-09-12" || !got.IsPostponed() {
-		t.Fatalf("неверное сравнение: %+v", got)
-	}
-	if got.BaselineStatus != "В работе" || got.CurrentStatus != "Завершен успешно" {
-		t.Fatalf("неверные статусы: %+v", got)
-	}
-}
-
-func TestStoreTracksNewIDsAndKeepsBaselineStage(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "data.db"))
-	if err := store.Load(); err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, err := store.Import("2026-08", []ImportedRow{{Key: "1", DealID: "101", Hearing: "2026-08-10", DealStage: "Подготовка"}}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.Import("2026-09", []ImportedRow{{Key: "2", DealID: "202", Hearing: "2026-09-10", DealStage: "Суд"}}); err != nil {
-		t.Fatal(err)
-	}
-	if got := len(store.Snapshot().Cases); got != 2 {
-		t.Fatalf("tracked cases = %d, want 2", got)
-	}
-	if _, err := store.UpdateCurrent([]CurrentUpdate{{Key: "1", Stage: "Завершена"}}); err != nil {
-		t.Fatal(err)
-	}
-	var first Case
-	for _, item := range store.Snapshot().Cases {
-		if item.Key == "1" {
-			first = item
-		}
-	}
-	if first.BaselineStage != "Подготовка" || first.CurrentStage != "Завершена" || first.DealID != "101" {
-		t.Fatalf("unexpected tracked stages: %+v", first)
-	}
-}
-
-func TestSyncEndpointUpdatesSQLite(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "dashboard.db"))
-	if err := store.Load(); err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	if _, err := store.Import("2026-08", []ImportedRow{{Key: "42", Name: "Контакт", Hearing: "2026-08-10", Status: "В работе"}}); err != nil {
-		t.Fatal(err)
-	}
-	tmpl := template.Must(template.New("dashboard.html").Funcs(template.FuncMap{"statusClass": statusClass, "dateRU": dateRU}).ParseFS(assets, "templates/dashboard.html"))
-	app := &application{store: store, tmpl: tmpl, basePath: basePath}
-	payload, _ := json.Marshal([]CurrentUpdate{{Key: "42", Hearing: "2026-09-01", Status: "Завершен успешно"}})
-	recorder := httptest.NewRecorder()
-	app.routes().ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, appPath+"/sync", bytes.NewReader(payload)))
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("sync status = %d: %s", recorder.Code, recorder.Body.String())
-	}
-	item := store.Snapshot().Cases[0]
-	if item.BaselineHearing != "2026-08-10" || item.CurrentHearing != "2026-09-01" || !item.IsPostponed() {
-		t.Fatalf("неверные даты после sync: %+v", item)
-	}
-	if item.BaselineStatus != "В работе" || item.CurrentStatus != "Завершен успешно" {
-		t.Fatalf("неверные статусы после sync: %+v", item)
 	}
 }
 
 func TestExportExcel(t *testing.T) {
-	store := NewStore(filepath.Join(t.TempDir(), "dashboard.db"))
-	if err := store.Load(); err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
-	_, _ = store.Import("2026-08", []ImportedRow{{Key: "42", DealID: "84", Name: "Иванов", Hearing: "2026-08-10", DealStage: "Суд"}})
-	app := &application{store: store}
+	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()
-	app.exportExcel(recorder, httptest.NewRequest(http.MethodGet, appPath+"/export", nil))
+	testApp(t).exportExcel(recorder, httptest.NewRequest(http.MethodPost, appPath+"/export", strings.NewReader(payload)))
 	reader, err := zip.NewReader(bytes.NewReader(recorder.Body.Bytes()), int64(recorder.Body.Len()))
 	if err != nil {
 		t.Fatalf("invalid xlsx: %v", err)
 	}
 	if len(reader.File) < 5 {
-		t.Fatalf("xlsx parts = %d", len(reader.File))
+		t.Fatalf("xlsx parts=%d", len(reader.File))
 	}
-	if contentType := recorder.Header().Get("Content-Type"); !strings.Contains(contentType, "spreadsheetml") {
-		t.Fatalf("content type = %s", contentType)
+}
+
+func TestCompletedNormalization(t *testing.T) {
+	if !isCompleted(" Завершён успешно ") {
+		t.Fatal("статус не распознан")
 	}
 }

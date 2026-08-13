@@ -25,26 +25,26 @@
     {{if .Message}}<div class="notice">{{.Message}}</div>{{end}}
 
     <section class="metrics">
-      <article><span>Всего в плане</span><strong>{{.Total}}</strong><small>{{.Period}}</small></article>
-      <article class="green"><span>Завершено успешно</span><strong>{{.Completed}}</strong><small>по статусу контакта</small></article>
-      <article class="amber"><span>Перенос СЗ</span><strong>{{.Postponed}}</strong><small>дата изменилась</small></article>
+      <article><span>Всего в плане</span><strong id="metric-total">{{.Total}}</strong><small>{{.Period}}</small></article>
+      <article class="green"><span>Завершено успешно</span><strong id="metric-completed">{{.Completed}}</strong><small>по статусу контакта</small></article>
+      <article class="amber"><span>Перенос СЗ</span><strong id="metric-postponed">{{.Postponed}}</strong><small>дата изменилась</small></article>
     </section>
 
     <section class="panel">
       <div class="panel-head">
         <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
-        <div class="panel-actions">{{if .CanSync}}<form action="{{.BasePath}}/refresh" method="post"><input type="hidden" name="embedded" value="{{if .Embedded}}1{{else}}0{{end}}"><button id="sync-bitrix" type="submit">Обновить из Bitrix24</button></form>{{end}}<a class="export-button" href="{{.BasePath}}/export">Экспорт в Excel</a><input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
+        <div class="panel-actions">{{if .CanSync}}<button id="sync-bitrix" type="button">Получить данные из Bitrix24</button>{{end}}{{if .Rows}}<button class="export-button" id="export-excel" type="button">Экспорт в Excel</button>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
       </div>
       <div class="table-wrap">
         <table id="cases">
           <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th></tr></thead>
           <tbody>
-          {{range .Rows}}
-            <tr data-contact-id="{{.Key}}" data-deal-id="{{.DealID}}" class="{{if .IsPostponed}}postponed{{end}}">
+          {{range $index, $row := .Rows}}
+            <tr data-row-id="{{$index}}" data-contact-id="{{$row.Key}}" data-deal-id="{{$row.DealID}}" data-name="{{$row.Name}}" data-case-number="{{$row.CaseNumber}}" data-manager="{{$row.Manager}}" data-baseline-hearing="{{$row.BaselineHearing}}" data-current-hearing="{{$row.CurrentHearing}}" data-baseline-stage="{{$row.BaselineStage}}" data-current-stage="{{$row.CurrentStage}}" data-current-status="{{$row.CurrentStatus}}" class="{{if $row.IsPostponed}}postponed{{end}}">
               <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
-              <td>{{dateRU .BaselineHearing}}</td><td>{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
+              <td>{{dateRU .BaselineHearing}}</td><td class="current-hearing">{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
-              <td><span class="status active">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
+              <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
             </tr>
           {{else}}<tr><td colspan="7" class="empty">Данных пока нет</td></tr>{{end}}
           </tbody>
@@ -71,6 +71,7 @@
         new ResizeObserver(resize).observe(document.body);
         const syncButton = document.querySelector('#sync-bitrix');
         if (syncButton) syncButton.addEventListener('click', event => { event.preventDefault(); syncWithBitrix(syncButton); });
+        {{if .AutoSync}}if (syncButton) syncWithBitrix(syncButton);{{end}}
       });
     }
 
@@ -92,7 +93,7 @@
     };
 
     async function syncWithBitrix(button) {
-      const records = [...document.querySelectorAll('[data-contact-id]')].map(row => ({contactId: row.dataset.contactId, dealId: row.dataset.dealId})).filter(item => item.contactId);
+      const records = [...document.querySelectorAll('[data-contact-id]')].map(row => ({rowId: row.dataset.rowId, contactId: row.dataset.contactId, dealId: row.dataset.dealId})).filter(item => item.contactId);
       if (!records.length) return;
       button.disabled = true;
       button.textContent = 'Получение полей…';
@@ -111,31 +112,40 @@
           button.textContent = `Bitrix24: ${Math.min(offset + 25, records.length)} из ${records.length}`;
           const commands = {};
           chunk.forEach(item => {
-            commands[`contact_${item.contactId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
-            if (item.dealId) commands[`deal_${item.contactId}`] = ['crm.deal.get', {id: item.dealId}];
+            commands[`contact_${item.rowId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
+            if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.deal.get', {id: item.dealId}];
           });
           const results = await bxBatch(commands);
           for (const record of chunk) {
-            const result = results[`contact_${record.contactId}`];
+            const result = results[`contact_${record.rowId}`];
             if (!result || result.error()) { failed++; continue; }
             const payload = result.data();
             const item = payload.item || payload.result?.item || payload;
             let stage = '';
-            const dealResult = results[`deal_${record.contactId}`];
+            const dealResult = results[`deal_${record.rowId}`];
             if (dealResult && !dealResult.error()) {
               const deal = dealResult.data();
               stage = stageMeta ? fieldValue(stageMeta, deal.STAGE_ID ?? deal.stageId) : String(deal.STAGE_ID ?? deal.stageId ?? '');
             }
-            updates.push({id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
+            updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
           }
         }
         if (!updates.length) throw new Error('Bitrix24 не вернул ни одного контакта. Проверьте право CRM и Contact ID.');
-        button.textContent = 'Сохранение…';
-        const response = await fetch('{{.BasePath}}/sync', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(updates)});
-        if (!response.ok) throw new Error(await response.text());
-        const saved = await response.json();
-        const summary = `Из Bitrix24 обновлено контактов: ${saved.updated}` + (failed ? `; ошибок доступа/поиска: ${failed}` : '');
-        location.href = '{{.BasePath}}?embedded=1&message=' + encodeURIComponent(summary);
+        updates.forEach(update => {
+          const row = document.querySelector(`[data-row-id="${CSS.escape(String(update.rowId))}"]`);
+          if (!row) return;
+          row.dataset.currentStatus = update.status;
+          row.dataset.currentHearing = update.hearing;
+          if (update.stage) row.dataset.currentStage = update.stage;
+          const postponed = Boolean(row.dataset.baselineHearing && update.hearing && row.dataset.baselineHearing !== update.hearing);
+          row.classList.toggle('postponed', postponed);
+          row.querySelector('.current-hearing').innerHTML = formatDate(update.hearing) + (postponed ? '<span class="tag warn">перенос</span>' : '');
+          const stageCell = row.querySelector('.current-stage');
+          stageCell.textContent = row.dataset.currentStage || 'Не указана';
+        });
+        refreshMetrics();
+        button.disabled = false;
+        button.textContent = `Обновлено из Bitrix24: ${updates.length}` + (failed ? `, ошибок: ${failed}` : '');
       } catch (error) {
         button.disabled = false;
         button.textContent = 'Повторить синхронизацию';
@@ -143,6 +153,27 @@
       }
     }
     {{end}}
+
+    const formatDate = value => {
+      const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return match ? `${match[3]}.${match[2]}.${match[1]}` : (value || '—');
+    };
+    function refreshMetrics() {
+      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')];
+      document.querySelector('#metric-total').textContent = rows.length;
+      document.querySelector('#metric-completed').textContent = rows.filter(row => row.dataset.currentStatus.trim().toLocaleLowerCase('ru').replaceAll('ё','е') === 'завершен успешно').length;
+      document.querySelector('#metric-postponed').textContent = rows.filter(row => row.dataset.baselineHearing && row.dataset.currentHearing && row.dataset.baselineHearing !== row.dataset.currentHearing).length;
+    }
+    document.querySelector('#export-excel')?.addEventListener('click', async button => {
+      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].map(row => ({
+        key: row.dataset.contactId, deal_id: row.dataset.dealId, name: row.dataset.name, case_number: row.dataset.caseNumber, manager: row.dataset.manager,
+        baseline_hearing: row.dataset.baselineHearing, current_hearing: row.dataset.currentHearing, baseline_stage: row.dataset.baselineStage, current_stage: row.dataset.currentStage,
+        current_status: row.dataset.currentStatus
+      }));
+      const response = await fetch('{{.BasePath}}/export', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rows)});
+      if (!response.ok) { alert(await response.text()); return; }
+      const blob = await response.blob(); const link = document.createElement('a'); link.href=URL.createObjectURL(blob); link.download='completion-plan.xlsx'; link.click(); URL.revokeObjectURL(link.href);
+    });
   </script>
 </body>
 </html>

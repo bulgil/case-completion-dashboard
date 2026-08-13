@@ -10,11 +10,3 @@ services:
       - "127.0.0.1:1987:1987"
     environment:
       TZ: Asia/Yekaterinburg
-      DATA_FILE: /app/data/dashboard.db
-      BITRIX_WEBHOOK_URL: ${BITRIX_WEBHOOK_URL:-}
-    volumes:
-      - completion-dashboard-data:/app/data
-
-volumes:
-  completion-dashboard-data:
-    name: completion-dashboard-data

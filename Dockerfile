@@ -16,16 +16,13 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 WORKDIR /app
 COPY --from=builder /out/dashboard /app/dashboard
-RUN mkdir -p /app/data && chown -R dashboard:dashboard /app
+RUN chown -R dashboard:dashboard /app
 
 USER dashboard
-ENV TZ=Asia/Yekaterinburg \
-    DATA_FILE=/app/data/dashboard.db
+ENV TZ=Asia/Yekaterinburg
 EXPOSE 1987
-VOLUME ["/app/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD wget -qO- http://127.0.0.1:1987/completion-plan/healthz || exit 1
 
 ENTRYPOINT ["/app/dashboard"]
-

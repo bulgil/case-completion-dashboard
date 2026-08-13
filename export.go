@@ -2,14 +2,20 @@ package main
 
 import (
 	"archive/zip"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 )
 
-func (a *application) exportExcel(w http.ResponseWriter, _ *http.Request) {
-	snapshot := a.store.Snapshot()
-	filename := "completion-plan-" + snapshot.Period + ".xlsx"
+func (a *application) exportExcel(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
+	var cases []Case
+	if err := json.NewDecoder(r.Body).Decode(&cases); err != nil {
+		http.Error(w, "Некорректные данные экспорта", http.StatusBadRequest)
+		return
+	}
+	filename := "completion-plan.xlsx"
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 
@@ -19,7 +25,7 @@ func (a *application) exportExcel(w http.ResponseWriter, _ *http.Request) {
 		"_rels/.rels":                `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
 		"xl/workbook.xml":            `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Отслеживание" sheetId="1" r:id="rId1"/></sheets></workbook>`,
 		"xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`,
-		"xl/worksheets/sheet1.xml":   exportSheet(snapshot.Cases),
+		"xl/worksheets/sheet1.xml":   exportSheet(cases),
 	}
 	for name, body := range files {
 		part, err := book.Create(name)

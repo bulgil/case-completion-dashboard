@@ -132,6 +132,9 @@ func ParseWorkbook(path string) ([]ImportedRow, error) {
 	}
 	rows := make([]ImportedRow, 0, len(sheet.Rows)-1)
 	for _, xmlRow := range sheet.Rows[1:] {
+		if xmlRow.Hidden {
+			continue
+		}
 		cells := values(xmlRow)
 		get := func(name string) string { return cells[byName[name]] }
 		contactID := get("контакт: id")
