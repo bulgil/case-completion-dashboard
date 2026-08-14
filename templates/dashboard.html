@@ -67,9 +67,18 @@
     {{if .Embedded}}
     if (window.BX24) {
       BX24.init(() => {
-        const resize = () => BX24.resizeWindow(document.documentElement.scrollWidth, document.documentElement.scrollHeight);
+        let resizeFrame = 0;
+        const resize = () => {
+          cancelAnimationFrame(resizeFrame);
+          resizeFrame = requestAnimationFrame(() => {
+            const content = document.querySelector('.shell');
+            const width = Math.max(1180, Math.ceil(content.scrollWidth + 36));
+            const height = Math.ceil(document.documentElement.scrollHeight);
+            BX24.resizeWindow(width, height);
+          });
+        };
         resize();
-        new ResizeObserver(resize).observe(document.body);
+        new ResizeObserver(resize).observe(document.querySelector('.shell'));
         const syncButton = document.querySelector('#sync-bitrix');
         if (syncButton) syncButton.addEventListener('click', event => { event.preventDefault(); syncWithBitrix(syncButton); });
         {{if .AutoSync}}if (syncButton) syncWithBitrix(syncButton);{{end}}

@@ -63,6 +63,16 @@ func TestTemplateUsesWorkingBitrixUniversalMethods(t *testing.T) {
 	}
 }
 
+func TestEmbeddedDashboardRequestsDesktopWidth(t *testing.T) {
+	app := testApp(t)
+	recorder := httptest.NewRecorder()
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true})
+	body := recorder.Body.String()
+	if !strings.Contains(body, "Math.max(1180") || !strings.Contains(body, "BX24.resizeWindow(width, height)") {
+		t.Fatal("iframe не запрашивает рабочую ширину дашборда")
+	}
+}
+
 func TestExportExcel(t *testing.T) {
 	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()
