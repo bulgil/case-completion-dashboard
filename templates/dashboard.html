@@ -43,18 +43,20 @@
       </div>
       <div class="table-wrap">
         <table id="cases">
-          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th><th>Статус контакта на начало</th><th>Статус контакта текущий</th></tr></thead>
+          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th><th>Статус контакта на начало</th><th>Статус контакта текущий</th><th>Запрос суда проверен ОКК</th><th>Отчёт проверен ОКК</th></tr></thead>
           <tbody>
           {{range $index, $row := .Rows}}
-            <tr data-row-id="{{$index}}" data-contact-id="{{$row.Key}}" data-deal-id="{{$row.DealID}}" data-name="{{$row.Name}}" data-case-number="{{$row.CaseNumber}}" data-manager="{{$row.Manager}}" data-baseline-hearing="{{$row.BaselineHearing}}" data-current-hearing="{{$row.CurrentHearing}}" data-baseline-stage="{{$row.BaselineStage}}" data-current-stage="{{$row.CurrentStage}}" data-baseline-status="{{$row.BaselineStatus}}" data-current-status="{{$row.CurrentStatus}}" class="{{if $row.IsPostponed}}postponed{{end}}">
+            <tr data-row-id="{{$index}}" data-contact-id="{{$row.Key}}" data-deal-id="{{$row.DealID}}" data-name="{{$row.Name}}" data-case-number="{{$row.CaseNumber}}" data-manager="{{$row.Manager}}" data-baseline-hearing="{{$row.BaselineHearing}}" data-current-hearing="{{$row.CurrentHearing}}" data-baseline-stage="{{$row.BaselineStage}}" data-current-stage="{{$row.CurrentStage}}" data-baseline-status="{{$row.BaselineStatus}}" data-current-status="{{$row.CurrentStatus}}" data-court-request-okk="{{$row.CourtRequestOKK}}" data-report-okk="{{$row.ReportOKK}}" class="{{if $row.IsPostponed}}postponed{{end}}">
               <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td class="current-hearing">{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
               <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
               <td><span class="status {{statusClass .BaselineStatus}}">{{if .BaselineStatus}}{{.BaselineStatus}}{{else}}Не указан{{end}}</span></td>
               <td><span class="status {{statusClass .CurrentStatus}} current-contact-status">{{if .CurrentStatus}}{{.CurrentStatus}}{{else}}Не указан{{end}}</span></td>
+              <td><span class="status muted court-request-okk">{{if .CourtRequestOKK}}{{.CourtRequestOKK}}{{else}}Не указано{{end}}</span></td>
+              <td><span class="status muted report-okk">{{if .ReportOKK}}{{.ReportOKK}}{{else}}Не указано{{end}}</span></td>
             </tr>
-          {{else}}<tr><td colspan="9" class="empty">Данных пока нет</td></tr>{{end}}
+          {{else}}<tr><td colspan="11" class="empty">Данных пока нет</td></tr>{{end}}
           </tbody>
         </table>
       </div>
@@ -101,6 +103,8 @@
     const bxBatch = commands => new Promise(resolve => BX24.callBatch(commands, resolve, false));
     const STATUS_FIELD = 'UF_CRM_1708427400582';
     const HEARING_FIELD = 'UF_CRM_1708427240655';
+    const COURT_REQUEST_OKK_FIELD = 'UF_CRM_1786950686867';
+    const REPORT_OKK_FIELD = 'UF_CRM_1786950695618';
     const optionList = meta => {
       const candidates = [meta?.items, meta?.ITEMS, meta?.list, meta?.LIST, meta?.settings?.items, meta?.settings?.ITEMS, meta?.SETTINGS?.ITEMS];
       for (const candidate of candidates) {
@@ -119,6 +123,13 @@
       const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
       return match ? `${match[1]}-${match[2]}-${match[3]}` : String(value);
     };
+    const normalizeCheckValue = (meta, raw) => {
+      const value = fieldValue(meta, raw);
+      const normalized = value.toLocaleLowerCase('ru');
+      if (['1','y','yes','да','true'].includes(normalized)) return 'Да';
+      if (['0','n','no','нет','false',''].includes(normalized)) return value === '' ? 'Не указано' : 'Нет';
+      return value;
+    };
 
     async function syncWithBitrix(button) {
       const records = [...document.querySelectorAll('[data-contact-id]')].map(row => ({rowId: row.dataset.rowId, contactId: row.dataset.contactId, dealId: row.dataset.dealId})).filter(item => item.contactId);
@@ -130,6 +141,8 @@
         const fields = fieldPayload.fields || fieldPayload.result?.fields || fieldPayload;
         const statusMeta = fields[STATUS_FIELD];
         const hearingMeta = fields[HEARING_FIELD];
+        const courtRequestOKKMeta = fields[COURT_REQUEST_OKK_FIELD] || {};
+        const reportOKKMeta = fields[REPORT_OKK_FIELD] || {};
         if (!statusMeta || !hearingMeta) throw new Error(`Bitrix24 не вернул поля ${STATUS_FIELD} или ${HEARING_FIELD}`);
         const updates = [];
         let failed = 0;
@@ -155,7 +168,8 @@
               const deal = dealPayload.item || dealPayload.result?.item;
               stage = String(deal?.stageId ?? deal?.STAGE_ID ?? '');
             } else if (record.dealId) { failed++; console.error('Bitrix deal error', record, dealResult?.error(), dealResult?.error_description?.()); }
-            updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage});
+            updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage,
+              courtRequestOKK: normalizeCheckValue(courtRequestOKKMeta, item[COURT_REQUEST_OKK_FIELD]), reportOKK: normalizeCheckValue(reportOKKMeta, item[REPORT_OKK_FIELD])});
           }
         }
         const stageIDs = [...new Set(updates.map(update => update.stage).filter(Boolean))];
@@ -190,6 +204,15 @@
           statusCell.classList.toggle('success', normalizeStatus(update.status) === 'завершен успешно');
           statusCell.classList.toggle('muted', !update.status);
           statusCell.classList.toggle('active', Boolean(update.status) && normalizeStatus(update.status) !== 'завершен успешно');
+          row.dataset.courtRequestOkk = update.courtRequestOKK;
+          row.dataset.reportOkk = update.reportOKK;
+          [row.querySelector('.court-request-okk'), row.querySelector('.report-okk')].forEach((cell, index) => {
+            const value = index === 0 ? update.courtRequestOKK : update.reportOKK;
+            cell.textContent = value;
+            cell.classList.toggle('success', value === 'Да');
+            cell.classList.toggle('active', value !== 'Да' && value !== 'Не указано');
+            cell.classList.toggle('muted', value === 'Не указано');
+          });
         });
         applyFilters();
         button.disabled = false;
@@ -235,7 +258,8 @@
       const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].filter(row => !row.hidden).map(row => ({
         key: row.dataset.contactId, deal_id: row.dataset.dealId, name: row.dataset.name, case_number: row.dataset.caseNumber, manager: row.dataset.manager,
         baseline_hearing: row.dataset.baselineHearing, current_hearing: row.dataset.currentHearing, baseline_stage: row.dataset.baselineStage, current_stage: row.dataset.currentStage,
-        baseline_status: row.dataset.baselineStatus, current_status: row.dataset.currentStatus
+        baseline_status: row.dataset.baselineStatus, current_status: row.dataset.currentStatus,
+        court_request_okk: row.dataset.courtRequestOkk, report_okk: row.dataset.reportOkk
       }));
       const response = await fetch('{{.BasePath}}/export', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rows)});
       if (!response.ok) { alert(await response.text()); return; }

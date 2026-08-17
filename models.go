@@ -12,6 +12,8 @@ type Case struct {
 	CurrentStatus   string `json:"current_status"`
 	BaselineStage   string `json:"baseline_stage"`
 	CurrentStage    string `json:"current_stage"`
+	CourtRequestOKK string `json:"court_request_okk"`
+	ReportOKK       string `json:"report_okk"`
 }
 
 func (c Case) IsPostponed() bool {

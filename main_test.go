@@ -97,6 +97,18 @@ func TestDashboardContainsHearingDateFilters(t *testing.T) {
 	}
 }
 
+func TestDashboardContainsOKKContactFields(t *testing.T) {
+	app := testApp(t)
+	recorder := httptest.NewRecorder()
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true, Rows: []Case{{Key: "42"}}})
+	body := recorder.Body.String()
+	for _, expected := range []string{"UF_CRM_1786950686867", "UF_CRM_1786950695618", "Запрос суда проверен ОКК", "Отчёт проверен ОКК", "court-request-okk", "report-okk"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("нет %q", expected)
+		}
+	}
+}
+
 func TestExportExcel(t *testing.T) {
 	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()

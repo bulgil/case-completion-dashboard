@@ -38,14 +38,14 @@ func (a *application) exportExcel(w http.ResponseWriter, r *http.Request) {
 }
 
 func exportSheet(cases []Case) string {
-	headers := []string{"ФИО", "Номер дела", "АУ", "СЗ на начало", "СЗ текущее", "Стадия сделки на начало", "Стадия сделки текущая", "Статус контакта на начало", "Статус контакта текущий"}
+	headers := []string{"ФИО", "Номер дела", "АУ", "СЗ на начало", "СЗ текущее", "Стадия сделки на начало", "Стадия сделки текущая", "Статус контакта на начало", "Статус контакта текущий", "Запрос суда проверен ОКК", "Отчёт проверен ОКК"}
 	var sheet strings.Builder
 	sheet.WriteString(`<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`)
 	writeExcelRow(&sheet, 1, headers)
 	for i, item := range cases {
-		writeExcelRow(&sheet, i+2, []string{item.Name, item.CaseNumber, item.Manager, dateRU(item.BaselineHearing), dateRU(item.CurrentHearing), item.BaselineStage, item.CurrentStage, item.BaselineStatus, item.CurrentStatus})
+		writeExcelRow(&sheet, i+2, []string{item.Name, item.CaseNumber, item.Manager, dateRU(item.BaselineHearing), dateRU(item.CurrentHearing), item.BaselineStage, item.CurrentStage, item.BaselineStatus, item.CurrentStatus, item.CourtRequestOKK, item.ReportOKK})
 	}
-	sheet.WriteString(`</sheetData><autoFilter ref="A1:I` + fmt.Sprint(len(cases)+1) + `"/></worksheet>`)
+	sheet.WriteString(`</sheetData><autoFilter ref="A1:K` + fmt.Sprint(len(cases)+1) + `"/></worksheet>`)
 	return sheet.String()
 }
 
