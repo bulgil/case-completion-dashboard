@@ -36,6 +36,11 @@
         <div><h2>Контакты плана</h2><p>{{if .UpdatedAt}}Обновлено {{.UpdatedAt}}{{else}}Загрузите исходный Excel-файл{{end}}</p></div>
         <div class="panel-actions">{{if .CanSync}}<button id="sync-bitrix" type="button">Получить данные из Bitrix24</button>{{end}}{{if .Rows}}<button class="export-button" id="export-excel" type="button">Экспорт в Excel</button>{{end}}<input id="search" type="search" placeholder="Поиск по ФИО, делу или АУ"></div>
       </div>
+      <div class="column-filters">
+        <fieldset><legend>СЗ на начало</legend><label>с <input id="baseline-from" type="date"></label><label>по <input id="baseline-to" type="date"></label></fieldset>
+        <fieldset><legend>СЗ текущее</legend><label>с <input id="current-from" type="date"></label><label>по <input id="current-to" type="date"></label></fieldset>
+        <button id="reset-filters" type="button">Сбросить фильтры</button>
+      </div>
       <div class="table-wrap">
         <table id="cases">
           <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th><th>Статус контакта на начало</th><th>Статус контакта текущий</th></tr></thead>
@@ -58,9 +63,12 @@
   {{if .Embedded}}<script src="https://api.bitrix24.com/api/v1/"></script>{{end}}
   <script>
     const search = document.querySelector('#search');
-    search.addEventListener('input', () => {
-      const query = search.value.toLocaleLowerCase('ru');
-      document.querySelectorAll('#cases tbody tr').forEach(row => row.hidden = !row.textContent.toLocaleLowerCase('ru').includes(query));
+    search.addEventListener('input', applyFilters);
+    ['baseline-from','baseline-to','current-from','current-to'].forEach(id => document.querySelector('#'+id).addEventListener('change', applyFilters));
+    document.querySelector('#reset-filters').addEventListener('click', () => {
+      search.value = '';
+      ['baseline-from','baseline-to','current-from','current-to'].forEach(id => document.querySelector('#'+id).value = '');
+      applyFilters();
     });
     document.querySelector('input[type=file]').addEventListener('change', e => {
       const label = e.target.nextElementSibling;
@@ -183,7 +191,7 @@
           statusCell.classList.toggle('muted', !update.status);
           statusCell.classList.toggle('active', Boolean(update.status) && normalizeStatus(update.status) !== 'завершен успешно');
         });
-        refreshMetrics();
+        applyFilters();
         button.disabled = false;
         button.textContent = `Обновлено из Bitrix24: ${updates.length}` + (failed ? `, ошибок: ${failed}` : '');
       } catch (error) {
@@ -199,14 +207,32 @@
       return match ? `${match[3]}.${match[2]}.${match[1]}` : (value || '—');
     };
     const normalizeStatus = value => String(value || '').trim().toLocaleLowerCase('ru').replaceAll('ё','е');
+    function dateInRange(value, from, to) {
+      if (!value) return !from && !to;
+      return (!from || value >= from) && (!to || value <= to);
+    }
+    function applyFilters() {
+      const query = search.value.trim().toLocaleLowerCase('ru');
+      const baselineFrom = document.querySelector('#baseline-from').value;
+      const baselineTo = document.querySelector('#baseline-to').value;
+      const currentFrom = document.querySelector('#current-from').value;
+      const currentTo = document.querySelector('#current-to').value;
+      document.querySelectorAll('#cases tbody tr[data-contact-id]').forEach(row => {
+        const matchesText = !query || row.textContent.toLocaleLowerCase('ru').includes(query);
+        const matchesBaseline = dateInRange(row.dataset.baselineHearing, baselineFrom, baselineTo);
+        const matchesCurrent = dateInRange(row.dataset.currentHearing, currentFrom, currentTo);
+        row.hidden = !(matchesText && matchesBaseline && matchesCurrent);
+      });
+      refreshMetrics();
+    }
     function refreshMetrics() {
-      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')];
+      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].filter(row => !row.hidden);
       document.querySelector('#metric-total').textContent = rows.length;
       document.querySelector('#metric-completed').textContent = rows.filter(row => normalizeStatus(row.dataset.currentStatus) === 'завершен успешно').length;
       document.querySelector('#metric-postponed').textContent = rows.filter(row => row.dataset.baselineHearing && row.dataset.currentHearing && row.dataset.baselineHearing !== row.dataset.currentHearing).length;
     }
     document.querySelector('#export-excel')?.addEventListener('click', async button => {
-      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].map(row => ({
+      const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].filter(row => !row.hidden).map(row => ({
         key: row.dataset.contactId, deal_id: row.dataset.dealId, name: row.dataset.name, case_number: row.dataset.caseNumber, manager: row.dataset.manager,
         baseline_hearing: row.dataset.baselineHearing, current_hearing: row.dataset.currentHearing, baseline_stage: row.dataset.baselineStage, current_stage: row.dataset.currentStage,
         baseline_status: row.dataset.baselineStatus, current_status: row.dataset.currentStatus

@@ -85,6 +85,18 @@ func TestDashboardShowsBaselineAndCurrentContactStatus(t *testing.T) {
 	}
 }
 
+func TestDashboardContainsHearingDateFilters(t *testing.T) {
+	app := testApp(t)
+	recorder := httptest.NewRecorder()
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath})
+	body := recorder.Body.String()
+	for _, expected := range []string{`id="baseline-from"`, `id="baseline-to"`, `id="current-from"`, `id="current-to"`, `id="reset-filters"`, "dateInRange", "applyFilters"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("нет %q", expected)
+		}
+	}
+}
+
 func TestExportExcel(t *testing.T) {
 	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()
