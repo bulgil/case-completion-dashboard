@@ -73,6 +73,18 @@ func TestEmbeddedDashboardRequestsDesktopWidth(t *testing.T) {
 	}
 }
 
+func TestDashboardShowsBaselineAndCurrentContactStatus(t *testing.T) {
+	app := testApp(t)
+	recorder := httptest.NewRecorder()
+	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Rows: []Case{{Key: "42", BaselineStatus: "В работе", CurrentStatus: "Завершен успешно"}}})
+	body := recorder.Body.String()
+	for _, expected := range []string{"Статус контакта на начало", "Статус контакта текущий", `data-baseline-status="В работе"`, "Завершен успешно"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("нет %q", expected)
+		}
+	}
+}
+
 func TestExportExcel(t *testing.T) {
 	payload := `[{"key":"42","name":"Иванов","baseline_stage":"Суд","current_stage":"Завершена"}]`
 	recorder := httptest.NewRecorder()

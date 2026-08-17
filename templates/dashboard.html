@@ -38,16 +38,18 @@
       </div>
       <div class="table-wrap">
         <table id="cases">
-          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th></tr></thead>
+          <thead><tr><th>ФИО</th><th>Номер дела</th><th>АУ</th><th>СЗ на начало</th><th>СЗ текущее</th><th>Стадия сделки на начало</th><th>Стадия сделки текущая</th><th>Статус контакта на начало</th><th>Статус контакта текущий</th></tr></thead>
           <tbody>
           {{range $index, $row := .Rows}}
-            <tr data-row-id="{{$index}}" data-contact-id="{{$row.Key}}" data-deal-id="{{$row.DealID}}" data-name="{{$row.Name}}" data-case-number="{{$row.CaseNumber}}" data-manager="{{$row.Manager}}" data-baseline-hearing="{{$row.BaselineHearing}}" data-current-hearing="{{$row.CurrentHearing}}" data-baseline-stage="{{$row.BaselineStage}}" data-current-stage="{{$row.CurrentStage}}" data-current-status="{{$row.CurrentStatus}}" class="{{if $row.IsPostponed}}postponed{{end}}">
+            <tr data-row-id="{{$index}}" data-contact-id="{{$row.Key}}" data-deal-id="{{$row.DealID}}" data-name="{{$row.Name}}" data-case-number="{{$row.CaseNumber}}" data-manager="{{$row.Manager}}" data-baseline-hearing="{{$row.BaselineHearing}}" data-current-hearing="{{$row.CurrentHearing}}" data-baseline-stage="{{$row.BaselineStage}}" data-current-stage="{{$row.CurrentStage}}" data-baseline-status="{{$row.BaselineStatus}}" data-current-status="{{$row.CurrentStatus}}" class="{{if $row.IsPostponed}}postponed{{end}}">
               <td><strong>{{.Name}}</strong><small>Contact ID: {{.Key}}{{if .DealID}} · Deal ID: {{.DealID}}{{end}}</small></td><td>{{.CaseNumber}}</td><td>{{.Manager}}</td>
               <td>{{dateRU .BaselineHearing}}</td><td class="current-hearing">{{dateRU .CurrentHearing}}{{if .IsPostponed}}<span class="tag warn">перенос</span>{{end}}</td>
               <td><span class="status active">{{if .BaselineStage}}{{.BaselineStage}}{{else}}Не указана{{end}}</span></td>
-              <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span><small class="current-contact-status">Статус контакта: {{if .CurrentStatus}}{{.CurrentStatus}}{{else}}не указан{{end}}</small></td>
+              <td><span class="status active current-stage">{{if .CurrentStage}}{{.CurrentStage}}{{else}}Не указана{{end}}</span></td>
+              <td><span class="status {{statusClass .BaselineStatus}}">{{if .BaselineStatus}}{{.BaselineStatus}}{{else}}Не указан{{end}}</span></td>
+              <td><span class="status {{statusClass .CurrentStatus}} current-contact-status">{{if .CurrentStatus}}{{.CurrentStatus}}{{else}}Не указан{{end}}</span></td>
             </tr>
-          {{else}}<tr><td colspan="7" class="empty">Данных пока нет</td></tr>{{end}}
+          {{else}}<tr><td colspan="9" class="empty">Данных пока нет</td></tr>{{end}}
           </tbody>
         </table>
       </div>
@@ -175,7 +177,11 @@
           row.querySelector('.current-hearing').innerHTML = formatDate(update.hearing) + (postponed ? '<span class="tag warn">перенос</span>' : '');
           const stageCell = row.querySelector('.current-stage');
           stageCell.textContent = row.dataset.currentStage || 'Не указана';
-          row.querySelector('.current-contact-status').textContent = 'Статус контакта: ' + (update.status || 'не указан');
+          const statusCell = row.querySelector('.current-contact-status');
+          statusCell.textContent = update.status || 'Не указан';
+          statusCell.classList.toggle('success', normalizeStatus(update.status) === 'завершен успешно');
+          statusCell.classList.toggle('muted', !update.status);
+          statusCell.classList.toggle('active', Boolean(update.status) && normalizeStatus(update.status) !== 'завершен успешно');
         });
         refreshMetrics();
         button.disabled = false;
@@ -192,17 +198,18 @@
       const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
       return match ? `${match[3]}.${match[2]}.${match[1]}` : (value || '—');
     };
+    const normalizeStatus = value => String(value || '').trim().toLocaleLowerCase('ru').replaceAll('ё','е');
     function refreshMetrics() {
       const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')];
       document.querySelector('#metric-total').textContent = rows.length;
-      document.querySelector('#metric-completed').textContent = rows.filter(row => row.dataset.currentStatus.trim().toLocaleLowerCase('ru').replaceAll('ё','е') === 'завершен успешно').length;
+      document.querySelector('#metric-completed').textContent = rows.filter(row => normalizeStatus(row.dataset.currentStatus) === 'завершен успешно').length;
       document.querySelector('#metric-postponed').textContent = rows.filter(row => row.dataset.baselineHearing && row.dataset.currentHearing && row.dataset.baselineHearing !== row.dataset.currentHearing).length;
     }
     document.querySelector('#export-excel')?.addEventListener('click', async button => {
       const rows = [...document.querySelectorAll('#cases tbody tr[data-contact-id]')].map(row => ({
         key: row.dataset.contactId, deal_id: row.dataset.dealId, name: row.dataset.name, case_number: row.dataset.caseNumber, manager: row.dataset.manager,
         baseline_hearing: row.dataset.baselineHearing, current_hearing: row.dataset.currentHearing, baseline_stage: row.dataset.baselineStage, current_stage: row.dataset.currentStage,
-        current_status: row.dataset.currentStatus
+        baseline_status: row.dataset.baselineStatus, current_status: row.dataset.currentStatus
       }));
       const response = await fetch('{{.BasePath}}/export', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rows)});
       if (!response.ok) { alert(await response.text()); return; }
