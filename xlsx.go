@@ -124,7 +124,7 @@ func ParseWorkbook(path string) ([]ImportedRow, error) {
 	for col, header := range headers {
 		byName[normalizeHeader(header)] = col
 	}
-	required := []string{"название", "контакт: номер дела", "контакт: арбитражный управляющий", "контакт: сз завершение", "контакт: статус"}
+	required := []string{"название", "контакт: номер дела", "контакт: арбитражный управляющий", "контакт: сз завершение", "стадия сделки", "контакт: id"}
 	for _, name := range required {
 		if _, ok := byName[name]; !ok {
 			return nil, fmt.Errorf("не найдена колонка «%s»", name)
@@ -136,7 +136,13 @@ func ParseWorkbook(path string) ([]ImportedRow, error) {
 			continue
 		}
 		cells := values(xmlRow)
-		get := func(name string) string { return cells[byName[name]] }
+		get := func(name string) string {
+			column, exists := byName[name]
+			if !exists {
+				return ""
+			}
+			return cells[column]
+		}
 		contactID := get("контакт: id")
 		caseNumber := get("контакт: номер дела")
 		name := get("название")

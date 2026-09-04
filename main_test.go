@@ -6,9 +6,33 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestParseWorkbookWithoutContactStatusAndDealID(t *testing.T) {
+	path := `C:\Users\12der\Downloads\ТЗ Булату Дашборд сентябрь (1).xlsx`
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Skip("тестовый Excel доступен только локально")
+	}
+	rows, err := ParseWorkbook(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1012 {
+		t.Fatalf("строк = %d, ожидалось 1012", len(rows))
+	}
+	if rows[0].Status != "" {
+		t.Fatalf("отсутствующий статус прочитан как %q", rows[0].Status)
+	}
+	if rows[0].DealID != "" {
+		t.Fatalf("отсутствующий Deal ID прочитан как %q", rows[0].DealID)
+	}
+	if rows[0].Key == "" || rows[0].DealStage == "" {
+		t.Fatalf("не прочитаны обязательные данные: %+v", rows[0])
+	}
+}
 
 func testApp(t *testing.T) *application {
 	t.Helper()
@@ -56,7 +80,7 @@ func TestTemplateUsesWorkingBitrixUniversalMethods(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true, CanSync: true, Rows: []Case{{Key: "42", DealID: "84"}}})
 	body := recorder.Body.String()
-	for _, expected := range []string{"crm.item.fields", "crm.item.get", "entityTypeId: 3", "entityTypeId: 2", "crm.status.list", "STATUS_ID"} {
+	for _, expected := range []string{"crm.item.fields", "crm.item.get", "entityTypeId: 3", "entityTypeId: 2", "crm.deal.list", "CONTACT_ID", "crm.status.list", "STATUS_ID"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("нет %q", expected)
 		}

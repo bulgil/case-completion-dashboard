@@ -153,6 +153,7 @@
           chunk.forEach(item => {
             commands[`contact_${item.rowId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
             if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.item.get', {entityTypeId: 2, id: item.dealId}];
+            else commands[`deal_${item.rowId}`] = ['crm.deal.list', {order: {DATE_MODIFY: 'DESC'}, filter: {CONTACT_ID: item.contactId}, select: ['ID','STAGE_ID','DATE_MODIFY']}];
           });
           const results = await bxBatch(commands);
           for (const record of chunk) {
@@ -165,7 +166,7 @@
             const dealResult = results[`deal_${record.rowId}`];
             if (dealResult && !dealResult.error()) {
               const dealPayload = dealResult.data();
-              const deal = dealPayload.item || dealPayload.result?.item;
+              const deal = Array.isArray(dealPayload) ? dealPayload[0] : (dealPayload.item || dealPayload.result?.item);
               stage = String(deal?.stageId ?? deal?.STAGE_ID ?? '');
             } else if (record.dealId) { failed++; console.error('Bitrix deal error', record, dealResult?.error(), dealResult?.error_description?.()); }
             updates.push({rowId: record.rowId, id: record.contactId, status: fieldValue(statusMeta, item[STATUS_FIELD]), hearing: normalizeDate(item[HEARING_FIELD]), stage,
