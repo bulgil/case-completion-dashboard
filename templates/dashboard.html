@@ -153,7 +153,7 @@
           chunk.forEach(item => {
             commands[`contact_${item.rowId}`] = ['crm.item.get', {entityTypeId: 3, id: item.contactId, useOriginalUfNames: 'Y'}];
             if (item.dealId) commands[`deal_${item.rowId}`] = ['crm.item.get', {entityTypeId: 2, id: item.dealId}];
-            else commands[`deal_${item.rowId}`] = ['crm.deal.list', {order: {DATE_MODIFY: 'DESC'}, filter: {CONTACT_ID: item.contactId}, select: ['ID','STAGE_ID','DATE_MODIFY']}];
+            else commands[`deal_${item.rowId}`] = ['crm.deal.list', {order: {ID: 'DESC'}, filter: {CONTACT_ID: item.contactId, CATEGORY_ID: 7}, select: ['ID','STAGE_ID','CATEGORY_ID']}];
           });
           const results = await bxBatch(commands);
           for (const record of chunk) {

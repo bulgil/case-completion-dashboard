@@ -80,7 +80,7 @@ func TestTemplateUsesWorkingBitrixUniversalMethods(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	app.render(recorder, dashboardData{PeriodInput: "2026-08", BasePath: basePath, Embedded: true, CanSync: true, Rows: []Case{{Key: "42", DealID: "84"}}})
 	body := recorder.Body.String()
-	for _, expected := range []string{"crm.item.fields", "crm.item.get", "entityTypeId: 3", "entityTypeId: 2", "crm.deal.list", "CONTACT_ID", "crm.status.list", "STATUS_ID"} {
+	for _, expected := range []string{"crm.item.fields", "crm.item.get", "entityTypeId: 3", "entityTypeId: 2", "crm.deal.list", "CONTACT_ID", "CATEGORY_ID: 7", "crm.status.list", "STATUS_ID"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("нет %q", expected)
 		}
