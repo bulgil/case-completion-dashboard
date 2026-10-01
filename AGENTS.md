@@ -1,59 +1,64 @@
-# Инструкции для работы с проектом
+# Общие инструкции для будущих дашбордов
 
-## Технологии
+Этот файл описывает общие правила для новых дашбордов. Не переносить бизнес-логику, CRM-поля, Excel-колонки, порт или URL существующего дашборда в новый проект без явного указания пользователя.
 
-- Backend этого проекта пишется на Go. Не заменяйте Go-сервер другим языком и новую серверную логику реализуйте на Go.
-- Версию Go берите из `go.mod` и Dockerfile.
-- Frontend находится в `templates/` и `static/`, ресурсы встроены в Go-бинарник.
-- Приложение не должно требовать БД, если пользователь явно не изменил архитектурное требование.
+## Архитектура
+
+- Каждый новый дашборд — отдельный проект на Go.
+- Каждый новый дашборд — отдельный GitHub-репозиторий и отдельное локальное приложение Bitrix24.
+- Каждый проект разворачивается в новой папке `/opt/projects/go-projects/<project-name>`.
+- Не создавать новый проект внутри `case-completion-dashboard` или другого существующего проекта.
+- Использовать уникальные имя проекта, порт, Docker service/container и Caddy path.
+- Backend писать на Go. Версию Go фиксировать в `go.mod` и Dockerfile.
+- Добавлять Dockerfile, compose.yaml, Taskfile.yml, README.md, healthcheck и Go-тесты.
 
 ## Bitrix24
 
-- Рабочий URL локального приложения: `https://pravv-dev.ru/dashboards/completion-plan`.
-- Требуемое право приложения: `CRM`.
-- Отдельный webhook не используется: REST вызывается через JS SDK `BX24` в iframe локального приложения.
-- Обработчик приложения должен принимать GET и POST.
-- REST-методы: `crm.item.fields`, `crm.item.get`, `crm.deal.list`, `crm.status.list`.
-- Пользовательские поля контакта:
-  - статус: `UF_CRM_1708427400582`;
-  - СЗ завершение: `UF_CRM_1708427240655`;
-  - запрос суда проверен ОКК: `UF_CRM_1786950686867`;
-  - отчёт проверен ОКК: `UF_CRM_1786950695618`.
-- Если ID сделки отсутствует, искать сделку по `CONTACT_ID` строго в `CATEGORY_ID = 7` («Завершение процедуры»).
-- Не добавлять секреты Bitrix24 в репозиторий.
+- Типовой URL: `https://pravv-dev.ru/dashboards/<dashboard-slug>`.
+- Каждый дашборд регистрировать отдельным локальным приложением.
+- Обработчик должен принимать GET и POST и работать внутри iframe.
+- До REST-вызовов использовать `BX24.init`; пакетные запросы выполнять через `BX24.callBatch`, когда это уместно.
+- Права, методы и пользовательские поля определять заново по ТЗ конкретного дашборда.
+- Не считать поля или методы предыдущего дашборда общим стандартом.
+- Для интерактивного приложения отдельный webhook обычно не нужен: используется авторизация JS SDK текущего пользователя.
+- Если нужны фоновые запросы или события, отдельно согласовать OAuth/входящий webhook/исходящий webhook. Секреты хранить только в серверном `.env`, никогда не коммитить.
 
-## Пути и порт
+## Сервер
 
-- Порт приложения: `1987`.
-- Внешний base path: `/dashboards/completion-plan`.
-- Внутренний путь Go-приложения за Caddy `handle_path`: `/completion-plan`.
-- Healthcheck: `http://127.0.0.1:1987/completion-plan/healthz`.
+- SSH: `root@pravv-dev.ru`.
+- Родительский каталог проектов: `/opt/projects/go-projects/`.
+- Перед созданием проекта проверить существующие каталоги, порты, контейнеры и Caddy routes.
+- Не изменять и не перезапускать другие дашборды.
 
-## Проверка
-
-- Выполнить `gofmt` для изменённых `.go` файлов.
-- Выполнить `go test ./...`, если локальный Go исправен.
-- Dockerfile также выполняет тесты во время сборки; успешная серверная сборка подтверждает прохождение тестов в целевой среде.
-- Не добавлять в коммит несвязанный каталог `bitrix24-deal-cleaner/` и другие пользовательские изменения.
-
-## Git и деплой
-
-- GitHub: `https://github.com/bulgil/case-completion-dashboard.git`.
-- Сервер развёртывания: `root@pravv-dev.ru`.
-- Каталог на сервере: `/opt/projects/go-projects/case-completion-dashboard`.
-- Сервер обновляется из ветки `main`.
-- После реализации и проверки изменений отправить соответствующий коммит в `main`, если пользователь просит обновить или развернуть проект.
-- Команда деплоя:
+Первичный деплой:
 
 ```bash
-ssh root@pravv-dev.ru 'cd /opt/projects/go-projects/case-completion-dashboard && git pull --ff-only origin main && docker compose up -d --build --force-recreate && docker compose ps && docker compose exec -T completion-dashboard wget -qO- http://127.0.0.1:1987/completion-plan/healthz'
+ssh root@pravv-dev.ru
+cd /opt/projects/go-projects
+git clone git@github.com:bulgil/<repository-name>.git <project-name>
+cd <project-name>
+docker compose up -d --build
+docker compose ps
 ```
 
-- Успешный healthcheck возвращает `ok`.
-- Для диагностики использовать:
+Обновление конкретного проекта:
 
 ```bash
-ssh root@pravv-dev.ru 'cd /opt/projects/go-projects/case-completion-dashboard && docker compose logs --tail=200 completion-dashboard'
+ssh root@pravv-dev.ru
+cd /opt/projects/go-projects/<project-name>
+git pull --ff-only origin main
+docker compose up -d --build --force-recreate
+docker compose ps
 ```
 
-- Не выполнять destructive Git-команды и не перезаписывать несвязанные изменения.
+После деплоя проверить healthcheck, логи и публичный HTTPS URL конкретного приложения.
+
+## Git и безопасность
+
+- По умолчанию новые репозитории создавать у GitHub-пользователя `bulgil`, если пользователь не указал иное.
+- Основная ветка сервера — `main`.
+- Перед коммитом выполнить `gofmt` и `go test ./...`.
+- Dockerfile должен запускать тесты при сборке.
+- Не добавлять в коммит файлы соседних проектов или несвязанные изменения.
+- Не использовать destructive Git-команды без прямого запроса пользователя.
+- Не хранить токены Bitrix24, приватные ключи, cookies и пароли в Git.
